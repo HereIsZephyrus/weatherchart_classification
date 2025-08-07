@@ -43,20 +43,6 @@ class Crawler:
         self.gallery_selector = GallerySelector(self.driver)
         self.gallery_crawler = GallaryCrawler(self.driver)
 
-    def connect_to_gallery(self) -> bool:
-        """
-        Connect to the ECMWF Charts website.
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            return self.gallery_crawler.navigate_to_gallery(self.driver.base_url)
-
-        except (TimeoutException, WebDriverException) as e:
-            logger.error("Error connecting to remote gallery: %s", e)
-            return False
-
     def apply_filters(self, filters: Dict[str, List[str]]) -> None:
         """
         Apply filters to the current gallery (local or remote).
@@ -74,6 +60,7 @@ class Crawler:
             self.gallery_selector.apply_filters(filters)
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error applying filters: %s", e)
+            raise e
 
     def extract_gallery_metadata(self, max_items: int = 50) -> Dict[str, Any]:
         """
@@ -107,7 +94,7 @@ class Crawler:
 
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error extracting metadata: %s", e)
-            return metadata
+            raise e
 
     def __del__(self):
         self.driver = None

@@ -221,3 +221,4 @@ gallery/
 *.ogg
 *.flac
 *.xml
+debug_html/

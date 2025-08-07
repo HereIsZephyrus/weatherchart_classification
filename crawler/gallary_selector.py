@@ -35,38 +35,44 @@ class GallerySelector:
         self.filter_categories = {}
         self.filter_orientation = {}
         self.init_filter()
-        
+
     def init_filter(self) -> None:
         """
         Initialize the filter categories.
         """
         try:
+            print(self.driver.driver.current_url)
             filter_divs = self.driver(
                     EC.presence_of_all_elements_located(
-                        (By.CSS_SELECTOR, "div.MuiFormGroup-root-5645.jss5579")
+                        (By.CSS_SELECTOR, "div.MuiFormGroup-root-276.jss210")
                     )
                 )
-        except TimeoutException:
+        except TimeoutException as e:
             logger.warning("Filter divs not found")
+            raise e
         except WebDriverException as e:
             logger.error("Error finding filter divs: %s", e)
+            raise e
 
         try:
             for parent_div in filter_divs:
-                legend_name = parent_div.find_element(By.CSS_SELECTOR, "legend.MuiFormLabel-root-5646.jss5580").text
+                legend_name = parent_div.find_element(
+                    By.CSS_SELECTOR, "legend.MuiFormLabel-root-278.jss211").text
                 self.filter_categories[legend_name] = []
                 self.filter_orientation[legend_name] = {}
                 category = self.filter_categories[legend_name]
                 orientation = self.filter_orientation[legend_name]
-                checkboxes = parent_div.find_elements(By.CSS_SELECTOR, "input.jss5663")
+                checkboxes = parent_div.find_elements(By.CSS_SELECTOR, "input.jss294")
                 for checkbox in checkboxes:
                     category.append(checkbox.get_attribute("value"))
                     orientation[checkbox.get_attribute("value")] = checkbox
 
-        except TimeoutException:
+        except TimeoutException as e:
             logger.warning("Filter divs not found")
+            raise e
         except WebDriverException as e:
             logger.error("Error finding filter divs: %s", e)
+            raise e
 
         logger.debug(self.filter_categories)
         logger.debug(self.filter_orientation)
@@ -78,10 +84,12 @@ class GallerySelector:
         """
         try:
             checkbox.click()
-        except TimeoutException:
+        except TimeoutException as e:
             logger.warning("Checkbox with value '%s' not found", checkbox.get_attribute("value"))
+            raise e
         except WebDriverException as e:
             logger.error("Error clicking checkbox: %s", e)
+            raise e
 
     def get_checkbox_state(self, checkbox: WebElement) -> bool:
         """
@@ -89,12 +97,12 @@ class GallerySelector:
         """
         try:
             return checkbox.is_selected()
-        except TimeoutException:
+        except TimeoutException as e:
             logger.warning("Checkbox with value '%s' not found", checkbox.get_attribute("value"))
+            raise e
         except WebDriverException as e:
             logger.error("Error getting checkbox state: %s", e)
-            return False
-        return False
+            raise e
 
     def filter_on(self, checkbox: WebElement) -> None:
         """
@@ -142,7 +150,8 @@ class GallerySelector:
         for category, options in self.filter_orientation.items():
             states[category] = {}
             for checkbox in options:
-                states[category][checkbox.get_attribute("value")] = self.get_checkbox_state(checkbox)
+                value = checkbox.get_attribute("value")
+                states[category][value] = self.get_checkbox_state(checkbox)
 
         return states
 

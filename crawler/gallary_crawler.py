@@ -59,7 +59,7 @@ class GallaryCrawler:
 
         except (TimeoutException, WebDriverException) as e:
             logger.error("Failed to navigate to gallery: %s", e)
-            return False
+            raise e
 
     def extract_chart_metadata(self, max_charts: int = 50) -> List[Dict[str, Any]]:
         """
@@ -117,7 +117,7 @@ class GallaryCrawler:
 
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error extracting chart metadata: %s", e)
-            return chart_data
+            raise e
 
     def _extract_single_chart_metadata(self, element, index: int) -> Optional[Dict[str, Any]]:
         """
@@ -199,7 +199,7 @@ class GallaryCrawler:
 
         except (TimeoutException, WebDriverException) as e:
             logger.debug("Error extracting metadata for chart element: %s", e)
-            return None
+            raise e
 
     def _parse_chart_attributes(self, metadata: Dict[str, Any]) -> None:
         """
@@ -261,7 +261,7 @@ class GallaryCrawler:
 
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error extracting image URLs: %s", e)
-            return image_urls
+            raise e
 
     def navigate_to_specific_chart_type(self, chart_type: str) -> bool:
         """
@@ -302,7 +302,7 @@ class GallaryCrawler:
 
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error navigating to chart type %s: %s", chart_type, e)
-            return False
+            raise e
 
     def get_page_info(self) -> Dict[str, Any]:
         """
@@ -350,7 +350,7 @@ class GallaryCrawler:
 
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error getting page info: %s", e)
-            return info
+            raise e
 
     def save_metadata_to_file(self, filename: str) -> bool:
         """
@@ -377,4 +377,4 @@ class GallaryCrawler:
 
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error saving metadata to file: %s", e)
-            return False
+            raise e

@@ -3,8 +3,6 @@ Gallery Crawler Module
 
 This module provides functionality to crawl and parse the ECMWF Charts website
 (https://charts.ecmwf.int/) to extract gallery information and chart data.
-
-Author: AI Assistant
 """
 
 import time
@@ -12,14 +10,11 @@ import logging
 import json
 from typing import List, Dict, Optional, Any
 from urllib.parse import urljoin
-from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
+from .driver import Driver
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class GallaryCrawler:
@@ -30,28 +25,20 @@ class GallaryCrawler:
     - Navigate to the ECMWF Charts website
     - Extract available chart categories and filters
     - Parse chart metadata and URLs
-    - Handle authentication if required
-    - Extract chart images and data
     """
 
-    def __init__(self, driver: webdriver.Chrome, wait_timeout: int = 15):
+    def __init__(self, driver: Driver):
         """
         Initialize the Gallery Crawler.
 
         Args:
-            driver: Optional existing WebDriver instance to use
+            driver: existing WebDriver instance to use
             wait_timeout: Maximum time to wait for elements (seconds)
         """
         self.driver = driver
-        self.wait_timeout = wait_timeout
-        self.wait = WebDriverWait(self.driver, self.wait_timeout)
+        self.chart_metadata = {}
 
-        # Chart categories and metadata storage
-        self.chart_categories = {}
-        self.available_filters = {}
-        self.chart_metadata = []
-
-    def navigate_to_gallery(self, url: str) -> bool:
+    def navigate_to_gallery(self, base_url : str) -> bool:
         """
         Navigate to the ECMWF Charts gallery page.
 
@@ -62,11 +49,10 @@ class GallaryCrawler:
             True if successful, False otherwise
         """
         try:
-            logger.info("Navigating to ECMWF Charts: %s", url)
-            self.driver.get(url)
+            logger.info("Navigating to ECMWF Charts: %s", base_url)
+            self.driver.get(base_url)
 
-            self.wait.until(EC.presence_of_element_located((By.TAG_NAME, "body")))
-            time.sleep(3)  # Additional wait for dynamic content
+            self.driver(EC.presence_of_element_located((By.TAG_NAME, "body")),3)
 
             logger.info("Successfully loaded ECMWF Charts page")
             return True
@@ -75,112 +61,11 @@ class GallaryCrawler:
             logger.error("Failed to navigate to gallery: %s", e)
             return False
 
-    def extract_available_filters(self) -> Dict[str, List[str]]:
-        """
-        Extract available filter options from the website.
-
-        Returns:
-            Dictionary with filter categories and their options
-        """
-        filters = {
-            'surface_atmosphere': [],
-            'product_type': [],
-            'parameters': [],
-            'regions': [],
-            'time_ranges': []
-        }
-
-        try:
-            # Look for filter panels or dropdown menus
-            filter_selectors = [
-                "input[type='checkbox']",
-                "select option",
-                ".filter-option",
-                ".checkbox-label",
-                "[data-filter]",
-                ".MuiFormControlLabel-root"
-            ]
-
-            for selector in filter_selectors:
-                try:
-                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
-                    for element in elements:
-                        if self._categorize_filter(element, filters):
-                            logger.debug("Found filter: %s", element.text.strip())
-
-                except NoSuchElementException:
-                    continue
-
-            # Remove empty categories and duplicates
-            for category in filters:
-                filters[category] = list(set(filter(None, filters[category])))
-
-            self.available_filters = filters
-            logger.info("Extracted filters: %s", {k: len(v) for k, v in filters.items()})
-            return filters
-
-        except (TimeoutException, WebDriverException) as e:
-            logger.error("Error extracting filters: %s", e)
-            return filters
-
-    def _categorize_filter(self, element, filters: Dict[str, List[str]]) -> bool:
-        """
-        Categorize a filter option based on its text content.
-
-        Args:
-            element: WebElement representing a filter option
-            filters: Dictionary to store categorized filters
-
-        Returns:
-            True if filter was categorized, False otherwise
-        """
-        text = element.text.strip()
-        text_lower = text.lower()
-
-        # Surface/Atmosphere category
-        if any(keyword in text_lower for keyword in ['surface', 'atmosphere', 'atmospheric']):
-            filters['surface_atmosphere'].append(text)
-            return True
-
-        # Product type category
-        elif any(keyword in text_lower for keyword in [
-            'forecast', 'ensemble', 'control', 'hres', 'aifs', 'experimental',
-            'extreme', 'point-based', 'machine learning'
-        ]):
-            filters['product_type'].append(text)
-            return True
-
-        # Parameters category
-        elif any(keyword in text_lower for keyword in [
-            'wind', 'temperature', 'precipitation', 'pressure', 'cloud',
-            'humidity', 'geopotential', 'snow', 'ocean', 'vapour', 'indices'
-        ]):
-            filters['parameters'].append(text)
-            return True
-
-        # Regions category
-        elif any(keyword in text_lower for keyword in [
-            'europe', 'atlantic', 'pacific', 'global', 'arctic', 'tropical',
-            'mediterranean', 'north', 'south', 'east', 'west'
-        ]):
-            filters['regions'].append(text)
-            return True
-
-        # Time ranges category
-        elif any(keyword in text_lower for keyword in [
-            'hour', 'day', 'week', 'month', 'range', 'term', 'lead'
-        ]):
-            filters['time_ranges'].append(text)
-            return True
-
-        return False
-
-    def extract_chart_metadata(self, base_url: str, max_charts: int = 50) -> List[Dict[str, Any]]:
+    def extract_chart_metadata(self, max_charts: int = 50) -> List[Dict[str, Any]]:
         """
         Extract metadata for available charts.
 
         Args:
-            base_url: The base URL of the ECMWF Charts website
             max_charts: Maximum number of charts to extract metadata for
 
         Returns:
@@ -218,7 +103,7 @@ class GallaryCrawler:
 
             for i, element in enumerate(chart_elements[:max_charts]):
                 try:
-                    metadata = self._extract_single_chart_metadata(element, base_url, i)
+                    metadata = self._extract_single_chart_metadata(element, i)
                     if metadata:
                         chart_data.append(metadata)
 
@@ -234,7 +119,7 @@ class GallaryCrawler:
             logger.error("Error extracting chart metadata: %s", e)
             return chart_data
 
-    def _extract_single_chart_metadata(self, element, base_url: str, index: int) -> Optional[Dict[str, Any]]:
+    def _extract_single_chart_metadata(self, element, index: int) -> Optional[Dict[str, Any]]:
         """
         Extract metadata from a single chart element.
 
@@ -280,7 +165,7 @@ class GallaryCrawler:
                 img_element = element.find_element(By.TAG_NAME, 'img')
                 src = img_element.get_attribute('src')
                 if src:
-                    metadata['image_url'] = urljoin(base_url, src)
+                    metadata['image_url'] = urljoin(self.driver.base_url, src)
             except NoSuchElementException:
                 pass
 
@@ -300,7 +185,7 @@ class GallaryCrawler:
                 link_element = element.find_element(By.TAG_NAME, 'a')
                 href = link_element.get_attribute('href')
                 if href:
-                    metadata['data_url'] = urljoin(base_url, href)
+                    metadata['data_url'] = urljoin(self.driver.base_url, href)
             except NoSuchElementException:
                 pass
 
@@ -350,7 +235,7 @@ class GallaryCrawler:
                 metadata['region'] = region.title()
                 break
 
-    def get_chart_image_urls(self, base_url: str) -> List[str]:
+    def get_chart_image_urls(self) -> List[str]:
         """
         Get URLs of all chart images on the current page.
 
@@ -368,7 +253,7 @@ class GallaryCrawler:
             for img in img_elements:
                 src = img.get_attribute('src')
                 if src and any(keyword in src.lower() for keyword in ['chart', 'forecast', 'weather', 'plot']):
-                    full_url = urljoin(base_url, src)
+                    full_url = urljoin(self.driver.base_url, src)
                     image_urls.append(full_url)
 
             logger.info("Found %d chart image URLs", len(image_urls))
@@ -480,7 +365,6 @@ class GallaryCrawler:
         try:
             data = {
                 'page_info': self.get_page_info(),
-                'available_filters': self.available_filters,
                 'chart_metadata': self.chart_metadata,
                 'extraction_timestamp': time.time()
             }

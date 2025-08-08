@@ -162,3 +162,27 @@ class GallerySelector:
         for options in self.filter_orientation.values():
             for checkbox in options:
                 self.filter_off(checkbox)
+
+    def filter(self, params: List[str]) -> None:
+        """
+        Filter the gallery by a parameter.
+        """
+        self.apply_filters(self._build_filter_categories(params))
+
+    def _build_filter_categories(self, params: List[str]) -> Dict[str, List[str]]:
+        """
+        Build the filter categories from the parameters.
+        """
+        filter_categories = {
+            "Range": ["Medium (15 days)"],
+            "Type": ["Forecasts"],
+            "Component": ['Surface', 'Atmosphere'],
+            "Product type":['Control Forecast (ex-HRES)',
+                            'Ensemble forecast (ENS)',
+                            'Extreme forecast index',
+                            'AIFS Single',
+                            'AIFS Ensemble forecast',
+                            'AIFS ENS Control'],
+        }
+        filter_categories["Parameters"] = params
+        return filter_categories

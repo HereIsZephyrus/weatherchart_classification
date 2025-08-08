@@ -10,7 +10,7 @@ Author: AI Assistant
 
 import time
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from .driver import Driver
 from .gallary_selector import GallerySelector
@@ -100,3 +100,15 @@ class Crawler:
         self.driver = None
         self.gallery_selector = None
         self.gallery_crawler = None
+
+    def filter(self, params: List[str]) -> None:
+        """
+        Filter the gallery by a parameter.
+        """
+        self.gallery_selector.filter(params)
+
+    def download(self, filename: Optional[str] = None) -> None:
+        """
+        Download the gallery.
+        """
+        self.driver.save_html(filename)

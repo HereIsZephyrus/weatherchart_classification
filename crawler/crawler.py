@@ -2,8 +2,8 @@
 Main Crawler Module
 
 This module provides the main Crawler class that coordinates WebDriver management
-and integrates GallerySelector and GallaryCrawler functionality for comprehensive
-weather chart gallary crawling and filtering operations.
+and integrates GallerySelector and GalleryCrawler functionality for comprehensive
+weather chart gallery crawling and filtering operations.
 
 Author: AI Assistant
 """
@@ -12,19 +12,19 @@ import logging
 from typing import Dict, List, Optional, Set
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from .driver import Driver
-from .gallary_selector import GallerySelector
-from .gallary_crawler import GallaryCrawler
+from .gallery_selector import GallerySelector
+from .gallery_crawler import GalleryCrawler
 
 logger = logging.getLogger(__name__)
 
 class Crawler:
     """
-    Main Crawler class that manages WebDriver and coordinates gallary operations.
+    Main Crawler class that manages WebDriver and coordinates gallery operations.
 
     This class provides:
     - Centralized WebDriver management
     - Integration of GallerySelector for local HTML filtering
-    - Integration of GallaryCrawler for live website crawling
+    - Integration of GalleryCrawler for live website crawling
     - Unified interface for both local and remote operations
     - Session management and resource cleanup
     """
@@ -40,11 +40,11 @@ class Crawler:
         """
         self.driver = Driver()
         self.gallery_selector = GallerySelector(self.driver)
-        self.gallery_crawler = GallaryCrawler(self.driver)
+        self.gallery_crawler = GalleryCrawler(self.driver)
 
     def apply_filters(self, filters: Dict[str, List[str]]) -> None:
         """
-        Apply filters to the current gallary (local or remote).
+        Apply filters to the current gallery (local or remote).
 
         Args:
             filters: Dictionary with filter categories and values
@@ -63,7 +63,7 @@ class Crawler:
 
     def extract_chart_hrefs(self) -> List[str]:
         """
-        Extract product hrefs from the current gallary.
+        Extract product hrefs from the current gallery.
 
         Args:
             max_items: Maximum number of items to extract
@@ -76,7 +76,7 @@ class Crawler:
         try:
             row_num = self.gallery_crawler.get_number_of_rows()
             if row_num == 0:
-                logger.warning("No rows found in the gallary")
+                logger.warning("No rows found in the gallery")
                 return href_list
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error getting number of rows: %s", e)
@@ -100,40 +100,40 @@ class Crawler:
 
     def filter(self, params: List[str]) -> None:
         """
-        Filter the gallary by a parameter.
+        Filter the gallery by a parameter.
         """
         self.gallery_selector.filter(params)
 
     def download_page(self, filename: Optional[str] = None) -> None:
         """
-        Download the gallary.
+        Download the gallery.
         """
         self.driver.save_html(filename)
 
-    def reorganize_gallery(self, gallary: Dict[str, List[str]]) -> Dict[str, List[str]]:
+    def reorganize_gallery(self, gallery: Dict[str, List[str]]) -> Dict[str, List[str]]:
         """
-        Reorganize gallary data to group URLs that appear in multiple parameters.
+        Reorganize gallery data to group URLs that appear in multiple parameters.
         
         Args:
-            gallary: Original gallary dictionary, keys are parameter names, values are URL lists
+            gallery: Original gallery dictionary, keys are parameter names, values are URL lists
             
         Returns:
-            Reorganized gallary dictionary, ensuring each URL belongs to only one type
+            Reorganized gallery dictionary, ensuring each URL belongs to only one type
         """
         # standardize the parameter names first
         standardized_gallery = {}
-        for param in gallary.keys():
+        for param in gallery.keys():
             new_param = param.lower()
             new_param = new_param.replace(" ", "_") 
             new_param = new_param.replace("-", "_")
-            standardized_gallery[new_param] = gallary[param]
-        gallary = standardized_gallery
-        logger.info("standardized gallary")
+            standardized_gallery[new_param] = gallery[param]
+        gallery = standardized_gallery
+        logger.info("standardized gallery")
 
         url_to_params: Dict[str, Set[str]] = {}
 
         # Count how many times each URL appears in which parameters
-        for param, urls in gallary.items():
+        for param, urls in gallery.items():
             for url in urls:
                 if url not in url_to_params:
                     url_to_params[url] = set()
@@ -155,5 +155,5 @@ class Crawler:
                     new_gallery[combined_key] = []
                 new_gallery[combined_key].append(url)
 
-        logger.info("reorganized gallary")
+        logger.info("reorganized gallery")
         return new_gallery

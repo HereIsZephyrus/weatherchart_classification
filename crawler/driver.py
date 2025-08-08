@@ -1,5 +1,5 @@
 """
-Driver class that manages Chrome WebDriver and coordinates gallary operations.
+Driver class that manages Chrome WebDriver and coordinates gallery operations.
 """
 from typing import Optional
 import logging
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class Driver:
     """
-    Driver class that manages WebDriver and coordinates gallary operations.
+    Driver class that manages WebDriver and coordinates gallery operations.
     """
     def __init__(self, wait_timeout: int = 30, user_agent: Optional[str] = None):
         self.wait_timeout = wait_timeout
@@ -116,7 +116,7 @@ class Driver:
 
     def wait_for_update(self, timedelay: Optional[int] = None) -> None:
         """
-        Wait for the gallary to update after filter changes.
+        Wait for the gallery to update after filter changes.
 
         Args:
             timeout: Maximum time to wait for update
@@ -142,7 +142,7 @@ class Driver:
             return True
 
         except (TimeoutException, WebDriverException) as e:
-            logger.error("Error connecting to remote gallary: %s", e)
+            logger.error("Error connecting to remote gallery: %s", e)
             raise e
 
     def wait_for_page_load(self, timeout: Optional[int] = None) -> None:

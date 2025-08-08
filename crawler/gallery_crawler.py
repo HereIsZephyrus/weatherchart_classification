@@ -2,14 +2,12 @@
 Gallery Crawler Module
 
 This module provides functionality to crawl and parse the ECMWF Charts website
-(https://charts.ecmwf.int/) to extract gallary information and chart data.
+(https://charts.ecmwf.int/) to extract gallery information and chart data.
 """
 
 import time
 import logging
-import json
-from typing import List, Dict, Optional, Any
-from urllib.parse import urljoin
+from typing import List
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException, WebDriverException
@@ -17,9 +15,9 @@ from .driver import Driver
 
 logger = logging.getLogger(__name__)
 
-class GallaryCrawler:
+class GalleryCrawler:
     """
-    A class to crawl and parse the ECMWF Charts gallary website.
+    A class to crawl and parse the ECMWF Charts gallery website.
 
     This class provides methods to:
     - Navigate to the ECMWF Charts website
@@ -42,14 +40,14 @@ class GallaryCrawler:
             )
         )
         self.card_height = 520 # px
-        self.gallary_line_count = None
+        self.gallery_line_count = None
 
     def navigate_to_gallery(self, base_url : str) -> bool:
         """
-        Navigate to the ECMWF Charts gallary page.
+        Navigate to the ECMWF Charts gallery page.
 
         Args:
-            url: The URL of the ECMWF Charts gallary page
+            url: The URL of the ECMWF Charts gallery page
 
         Returns:
             True if successful, False otherwise
@@ -64,18 +62,18 @@ class GallaryCrawler:
             return True
 
         except (TimeoutException, WebDriverException) as e:
-            logger.error("Failed to navigate to gallary: %s", e)
+            logger.error("Failed to navigate to gallery: %s", e)
             raise e
 
     def get_number_of_rows(self) -> int:
         """
-        Get the number of rows in the gallary.
+        Get the number of rows in the gallery.
         """
         try:
             gallery_height = self.main_layout.get_attribute("style").split("height: ")[1].split("px")[0]
             logger.debug("Gallery height: %s", gallery_height)
-            self.gallary_line_count = int(gallery_height) // self.card_height
-            return self.gallary_line_count
+            self.gallery_line_count = int(gallery_height) // self.card_height
+            return self.gallery_line_count
         except (TimeoutException, WebDriverException) as e:
             logger.error("Error getting number of rows: %s", e)
             raise e
@@ -112,7 +110,7 @@ class GallaryCrawler:
 
     def scroll_to_row(self, row_count: int) -> None:
         """
-        Scroll the gallary to the given row count.
+        Scroll the gallery to the given row count.
         """
         try:
             scroll_top = row_count * self.card_height
@@ -136,9 +134,9 @@ class GallaryCrawler:
         if (index < current_row_count + 3 - 1):
             return current_row_count
 
-        if self.gallary_line_count is None:
-            raise ValueError("Gallary line count not set")
+        if self.gallery_line_count is None:
+            raise ValueError("Gallery line count not set")
 
-        next_row_count = min(current_row_count + 3, self.gallary_line_count - 3)
+        next_row_count = min(current_row_count + 3, self.gallery_line_count - 3)
         self.scroll_to_row(next_row_count)
         return next_row_count

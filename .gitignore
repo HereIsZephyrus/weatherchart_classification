@@ -208,7 +208,8 @@ __marimo__/
 
 .DS_Store
 .vscode/
-gallary/
+gallery/
+debug_html/
 *.html
 *.webp
 *.png
@@ -221,4 +222,7 @@ gallary/
 *.ogg
 *.flac
 *.xml
-debug_html/
+*.pptx
+*.ppt
+*.zip
+*.tar*

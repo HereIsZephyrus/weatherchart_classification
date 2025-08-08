@@ -8,6 +8,9 @@ import requests
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from .driver import Driver
+import logging
+
+logger = logging.getLogger(__name__)
 
 def download_gallary_task(kind: str, urls: List[str]) -> None:
     """
@@ -18,6 +21,7 @@ def download_gallary_task(kind: str, urls: List[str]) -> None:
     os.makedirs(file_location, exist_ok=True)
     for url in urls:
         chart_crawler.download_chart(url)
+    logger.info("Downloaded charts for %s.", kind)
 
 class ChartCrawler:
     """
@@ -46,8 +50,13 @@ class ChartCrawler:
                 self.driver.connect(url)
                 self.driver.wait_for_update(timedelay=10)
                 image_url = self.driver(
-                    EC.presence_of_element_located((By.CSS_SELECTOR, "img.jss511.jss288.jss516"))
+                    EC.presence_of_element_located((By.TAG_NAME, "img"))
                 ).get_attribute("src")
+
+                if image_url is None:
+                    logger.warning("Failed to get image url for %s.", url)
+                    continue
+
                 image_data = requests.get(image_url, timeout=10)
                 with open(f"{self.file_location}/{date}_{projection}.webp", "wb") as handler:
                     handler.write(image_data.content)

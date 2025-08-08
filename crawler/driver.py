@@ -67,9 +67,9 @@ class Driver:
             if wait_time:
                 time.sleep(wait_time)
             return result
-        except TimeoutException as e:
-            logger.error("Operation timed out after %d seconds", self.wait_timeout)
-            raise e
+        except TimeoutException:
+            logger.warning("Operation timed out after %d seconds", self.wait_timeout)
+            return None
         except WebDriverException as e:
             logger.error("Error synchronizing operation: %s", e)
             raise e

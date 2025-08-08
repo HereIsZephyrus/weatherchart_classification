@@ -3,7 +3,7 @@
 Comprehensive Example: Weather Chart Gallery Crawler
 
 This example demonstrates the complete functionality of the weather chart
-gallery crawler system,
+gallary crawler system,
 including both local HTML filtering and remote
 ECMWF website crawling capabilities.
 
@@ -41,18 +41,18 @@ def main():
     """Demonstrate remote ECMWF website operations."""
     crawler = Crawler()
     # test for wind
-    gallery : Dict[str, List[str]] = {}
+    gallary : Dict[str, List[str]] = {}
     for param in param_list:
         logger.info("Filtering by %s", param)
         crawler.filter([param])
-        gallery[param] = crawler.extract_chart_hrefs()
+        gallary[param] = crawler.extract_chart_hrefs()
 
-    gallery = crawler.reorganize_gallery(gallery)
+    gallary = crawler.reorganize_gallery(gallary)
 
-    os.makedirs("gallery", exist_ok=True)
+    os.makedirs("gallary", exist_ok=True)
     with multiprocessing.Pool() as pool:
         tasks = []
-        for kind, urls in gallery.items():
+        for kind, urls in gallary.items():
             task = pool.apply_async(download_gallary_task, args=(kind, urls))
             tasks.append(task)
 

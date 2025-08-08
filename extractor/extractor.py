@@ -2,10 +2,10 @@
 Extractor images from pptx and tag them
 """
 import os
+import logging
 from pptx import Presentation
 from pptx.enum.shapes import MSO_SHAPE_TYPE
 from pptx.exc import PackageNotFoundError
-import logging
 
 logger = logging.getLogger(__name__)
 

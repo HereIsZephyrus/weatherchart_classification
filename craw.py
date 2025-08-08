@@ -1,14 +1,9 @@
-#!/usr/bin/env python3
 """
-Comprehensive Example: Weather Chart Gallery Crawler
-
-This example demonstrates the complete functionality of the weather chart
-gallery crawler system,
-including both local HTML filtering and remote
-ECMWF website crawling capabilities.
+This file is the entry point of the gallery crawler system,
+including both local HTML filtering and remote ECMWF website crawling capabilities.
 
 Usage:
-    python example_usage.py
+    python craw.py
 """
 
 import os
@@ -22,6 +17,8 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+GALLERY_DIR = 'gallery'
 
 param_list =  [ 'Wind',
                 'Mean sea level pressure',
@@ -49,7 +46,7 @@ def craw_from_ecmwf():
 
     gallery = crawler.reorganize_gallery(gallery)
 
-    os.makedirs("gallery", exist_ok=True)
+    os.makedirs(GALLERY_DIR, exist_ok=True)
     with multiprocessing.Pool() as pool:
         tasks = []
         for kind, urls in gallery.items():
@@ -59,7 +56,7 @@ def craw_from_ecmwf():
         for task in tasks:
             task.get()
 
-    inspector = GalleryInspector("gallery")
+    inspector = GalleryInspector(GALLERY_DIR)
     inspector.inspect()
     inspector.gallery_info()
 

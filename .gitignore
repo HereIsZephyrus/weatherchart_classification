@@ -208,7 +208,7 @@ __marimo__/
 
 .DS_Store
 .vscode/
-gallery/
+gallary/
 *.html
 *.webp
 *.png

@@ -1,5 +1,5 @@
 """
-Driver class that manages Chrome WebDriver and coordinates gallery operations.
+Driver class that manages Chrome WebDriver and coordinates gallary operations.
 """
 from typing import Optional
 import logging
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class Driver:
     """
-    Driver class that manages WebDriver and coordinates gallery operations.
+    Driver class that manages WebDriver and coordinates gallary operations.
     """
     def __init__(self, wait_timeout: int = 30, user_agent: Optional[str] = None):
         self.wait_timeout = wait_timeout
@@ -74,7 +74,7 @@ class Driver:
             logger.error("Error synchronizing operation: %s", e)
             raise e
 
-    def save_html(self, filename: Optional[str] = None) -> str:
+    def save_html(self, filepath: Optional[str] = None) -> str:
         """
         Save current page HTML to file for debugging.
 
@@ -84,17 +84,13 @@ class Driver:
         Returns:
             The filename of the saved HTML file
         """
-        if not filename:
+        if not filepath:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"debug_page_{timestamp}.html"
-
-        try:
-            # Create debug directory if it doesn't exist
             debug_dir = "debug_html"
             os.makedirs(debug_dir, exist_ok=True)
+            filepath = f"debug_html/debug_page_{timestamp}.html"
 
-            filepath = os.path.join(debug_dir, filename)
-
+        try:
             # Get page source and save to file
             page_source = self.driver.page_source
             with open(filepath, 'w', encoding='utf-8') as f:
@@ -116,18 +112,22 @@ class Driver:
         Get driver to a URL.
         """
         self.driver.get(url)
+        self.wait_for_page_load()
 
-    def wait_for_update(self, timeout: int) -> None:
+    def wait_for_update(self, timedelay: Optional[int] = None) -> None:
         """
-        Wait for the gallery to update after filter changes.
+        Wait for the gallary to update after filter changes.
 
         Args:
             timeout: Maximum time to wait for update
         """
-        logger.debug("Waited for gallery update")
-        time.sleep(timeout)  # Simple wait - could be improved with specific element checks
+        logger.debug("Waiting for page update and network idle")
+        if timedelay is None:
+            self.wait_for_page_load()
+        else:
+            time.sleep(timedelay)
 
-    def connect(self) -> bool:
+    def connect(self, url: Optional[str] = None) -> bool:
         """
         Connect to the ECMWF Charts website.
 
@@ -135,10 +135,39 @@ class Driver:
             True if successful, False otherwise
         """
         try:
-            self.get(self.base_url)
-            self.wait_for_update(10)
+            if url:
+                self.get(url)
+            else:
+                self.get(self.base_url)
             return True
 
         except (TimeoutException, WebDriverException) as e:
-            logger.error("Error connecting to remote gallery: %s", e)
+            logger.error("Error connecting to remote gallary: %s", e)
             raise e
+
+    def wait_for_page_load(self, timeout: Optional[int] = None) -> None:
+        """
+        Wait until the page reports it has fully loaded.
+
+        This waits for document.readyState === 'complete' and, if jQuery is present,
+        waits until there are no active AJAX requests.
+
+        Args:
+            timeout: Optional override for max wait time in seconds
+        """
+        max_wait = timeout if timeout is not None else self.wait_timeout
+
+        # Wait for DOM ready
+        WebDriverWait(self.driver, max_wait).until(
+            lambda d: d.execute_script("return document.readyState") == "complete"
+        )
+
+        # If jQuery is present, wait for AJAX to settle (best-effort)
+        try:
+            WebDriverWait(self.driver, min(5, max_wait)).until(
+                lambda d: d.execute_script(
+                    "return (window.jQuery && jQuery.active === 0) || !window.jQuery;"
+                )
+            )
+        except TimeoutException:
+            logger.debug("jQuery idle wait timed out or jQuery not present")

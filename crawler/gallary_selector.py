@@ -1,9 +1,9 @@
 """
 Gallery Selector Module
 
-This module provides functionality to interact with gallery filter checkboxes
+This module provides functionality to interact with gallary filter checkboxes
 for weather chart classification. It can click specific checkboxes to filter
-the gallery based on different criteria like surface/atmosphere, product types,
+the gallary based on different criteria like surface/atmosphere, product types,
 and parameters.
 """
 import logging
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class GallerySelector:
     """
-    A class to handle gallery filtering through checkbox interactions.
+    A class to handle gallary filtering through checkbox interactions.
 
     This class provides methods to:
     - Initialize a web driver
@@ -44,7 +44,6 @@ class GallerySelector:
         self.filter_orientation = {}
 
         try:
-            print(self.driver.driver.current_url)
             filter_divs = self.driver(
                     EC.presence_of_all_elements_located(
                         (By.CSS_SELECTOR, "div.MuiFormGroup-root-276.jss210")
@@ -168,7 +167,7 @@ class GallerySelector:
 
     def filter(self, params: List[str]) -> None:
         """
-        Filter the gallery by a parameter.
+        Filter the gallary by a parameter.
         """
         self.apply_filters(self._build_filter_categories(params))
 

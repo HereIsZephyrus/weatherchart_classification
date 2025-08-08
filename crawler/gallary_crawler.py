@@ -2,7 +2,7 @@
 Gallery Crawler Module
 
 This module provides functionality to crawl and parse the ECMWF Charts website
-(https://charts.ecmwf.int/) to extract gallery information and chart data.
+(https://charts.ecmwf.int/) to extract gallary information and chart data.
 """
 
 import time
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 class GallaryCrawler:
     """
-    A class to crawl and parse the ECMWF Charts gallery website.
+    A class to crawl and parse the ECMWF Charts gallary website.
 
     This class provides methods to:
     - Navigate to the ECMWF Charts website
@@ -46,10 +46,10 @@ class GallaryCrawler:
 
     def navigate_to_gallery(self, base_url : str) -> bool:
         """
-        Navigate to the ECMWF Charts gallery page.
+        Navigate to the ECMWF Charts gallary page.
 
         Args:
-            url: The URL of the ECMWF Charts gallery page
+            url: The URL of the ECMWF Charts gallary page
 
         Returns:
             True if successful, False otherwise
@@ -64,12 +64,12 @@ class GallaryCrawler:
             return True
 
         except (TimeoutException, WebDriverException) as e:
-            logger.error("Failed to navigate to gallery: %s", e)
+            logger.error("Failed to navigate to gallary: %s", e)
             raise e
 
     def get_number_of_rows(self) -> int:
         """
-        Get the number of rows in the gallery.
+        Get the number of rows in the gallary.
         """
         try:
             gallery_height = self.main_layout.get_attribute("style").split("height: ")[1].split("px")[0]
@@ -112,7 +112,7 @@ class GallaryCrawler:
 
     def scroll_to_row(self, row_count: int) -> None:
         """
-        Scroll the gallery to the given row count.
+        Scroll the gallary to the given row count.
         """
         try:
             scroll_top = row_count * self.card_height

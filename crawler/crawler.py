@@ -62,39 +62,37 @@ class Crawler:
             logger.error("Error applying filters: %s", e)
             raise e
 
-    def extract_gallery_metadata(self, max_items: int = 50) -> Dict[str, Any]:
+    def extract_chart_hrefs(self) -> List[str]:
         """
-        Extract metadata from the current gallery.
+        Extract product hrefs from the current gallery.
 
         Args:
             max_items: Maximum number of items to extract
 
         Returns:
-            Dictionary with extracted metadata
+            List of product hrefs
         """
-        metadata = {
-            'timestamp': time.time(),
-            'filters': {},
-            'charts': [],
-            'page_info': {}
-        }
 
+        href_list = []
         try:
-            if self.gallery_selector:
-                metadata['current_filter_states'] = self.gallery_selector.get_current_filter_states()
-
-            elif self.gallery_crawler:
-                if self.gallery_crawler:
-                    metadata['page_info'] = self.gallery_crawler.get_page_info()
-                    metadata['charts'] = self.gallery_crawler.extract_chart_metadata(max_items)
-                    metadata['image_urls'] = self.gallery_crawler.get_chart_image_urls()
-
-            logger.info("Extracted metadata for %s gallery", self.driver.base_url)
-            return metadata
-
+            row_num = self.gallery_crawler.get_number_of_rows()
+            if row_num == 0:
+                logger.warning("No rows found in the gallery")
+                return href_list
         except (TimeoutException, WebDriverException) as e:
-            logger.error("Error extracting metadata: %s", e)
+            logger.error("Error getting number of rows: %s", e)
             raise e
+
+        current_row_count = 0
+        try:
+            for index in range(row_num):
+                href_line = self.gallery_crawler.get_href_line(index)
+                href_list.extend(href_line)
+                current_row_count = self.gallery_crawler.get_next_row_count(index, current_row_count)
+        except (TimeoutException, WebDriverException) as e:
+            logger.error("Error getting chart hrefs: %s", e)
+            raise e
+        return href_list
 
     def __del__(self):
         self.driver = None

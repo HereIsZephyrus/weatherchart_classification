@@ -32,14 +32,17 @@ class GallerySelector:
         Initialize the Gallery Selector.
         """
         self.driver = driver
-        self.filter_categories = {}
-        self.filter_orientation = {}
+        self.filter_categories = None
+        self.filter_orientation = None
         self.init_filter()
 
     def init_filter(self) -> None:
         """
         Initialize the filter categories.
         """
+        self.filter_categories = {}
+        self.filter_orientation = {}
+
         try:
             print(self.driver.driver.current_url)
             filter_divs = self.driver(

@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 import logging
 import requests
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
 from .driver import Driver
@@ -52,15 +52,17 @@ class ChartCrawler:
                 self.driver.connect(url)
                 self.driver.wait_for_update(timedelay=10)
                 try:
-                    image_url = self.driver(
+                    image_element = self.driver(
                         EC.presence_of_element_located((By.TAG_NAME, "img"))
-                    ).get_attribute("src")
+                    )
                 except TimeoutException:
                     logger.warning("Failed to get image url for %s.", url)
                     continue
-                except NoSuchElementException:
+
+                if image_element is None:
                     logger.warning("No image found for %s.", url)
                     continue
+                image_url = image_element.get_attribute("src")
 
                 if image_url is None:
                     logger.warning("Failed to get image url for %s.", url)
@@ -71,7 +73,7 @@ class ChartCrawler:
                 except requests.exceptions.RequestException:
                     logger.warning("Failed to get image data for %s.", image_url)
                     continue
-                
+
                 with open(f"{self.file_location}/{dataset_name}_{date}.webp", "wb") as handler:
                     handler.write(image_data.content)
                 logger.info("Downloaded chart for %s.", url)

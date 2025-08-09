@@ -113,10 +113,10 @@ class Crawler:
     def reorganize_gallery(self, gallery: Dict[str, List[str]]) -> Dict[str, List[str]]:
         """
         Reorganize gallery data to group URLs that appear in multiple parameters.
-        
+
         Args:
             gallery: Original gallery dictionary, keys are parameter names, values are URL lists
-            
+
         Returns:
             Reorganized gallery dictionary, ensuring each URL belongs to only one type
         """
@@ -124,7 +124,7 @@ class Crawler:
         standardized_gallery = {}
         for param in gallery.keys():
             new_param = param.lower()
-            new_param = new_param.replace(" ", "_") 
+            new_param = new_param.replace(" ", "_")
             new_param = new_param.replace("-", "_")
             standardized_gallery[new_param] = gallery[param]
         gallery = standardized_gallery

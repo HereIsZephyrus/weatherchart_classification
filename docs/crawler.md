@@ -26,21 +26,7 @@ crawler/
 - `debug_html/`：调试页面快照（需要时生成）
 
 
-## 运行前提
-
-- Python 3.8+
-- 依赖：
-  - Selenium（浏览器自动化）
-  - Requests（下载图片）
-- Chrome 浏览器与对应驱动（Selenium 4.6+ 默认使用 Selenium Manager 自动管理，无需手工放置 chromedriver；如运行环境限制，请自行保证 Chrome/Chromium 与驱动匹配且在 PATH 中）
-
-安装依赖（示例）：
-
-```bash
-pip install -U selenium requests
-```
-
-Linux 服务器环境缺少浏览器时，可按需安装 Chrome/Chromium（略）。
+Linux 服务器环境缺少浏览器时，可按需安装 Chrome/Chromium。
 
 
 ## 快速开始（推荐）

@@ -28,7 +28,7 @@ class ImageInfo(BaseModel):
     slide_index : int
     img_index : int
     format : str
-    
+
     class Config:
         frozen = True  # make object immutable to ensure this object hashable
 

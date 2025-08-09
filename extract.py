@@ -34,9 +34,9 @@ def extract_and_classify_source_from_pptx():
     nmc_image_list = []
     for image in os.listdir(IMAGE_DIR):
         source = source_classifier.classify_source(os.path.join(IMAGE_DIR, image))
-        logger.info("Image %s is from %s", image, source)
+        logger.debug("Image %s is from %s", image, source)
         if source == "nmc":
-            nmc_image_list.append(image)
+            nmc_image_list.append(os.path.join(IMAGE_DIR, image))
 
     source_classifier.check_nmc_image(nmc_image_list)
     source_classifier.save_classified_list("classified_list.json")

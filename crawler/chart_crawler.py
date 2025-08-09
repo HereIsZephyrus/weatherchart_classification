@@ -45,6 +45,7 @@ class ChartCrawler:
         """
         Download the chart webp from the url
         """
+        dataset_name = base_url.split("/")[-1]
         for date in self.date_range:
             for projection in self.projection_list:
                 url = f"{base_url}?base_time={date}&valid_time={date}&projection={projection}"
@@ -71,7 +72,7 @@ class ChartCrawler:
                     logger.warning("Failed to get image data for %s.", image_url)
                     continue
                 
-                with open(f"{self.file_location}/{date}_{projection}.webp", "wb") as handler:
+                with open(f"{self.file_location}/{dataset_name}_{date}.webp", "wb") as handler:
                     handler.write(image_data.content)
                 logger.info("Downloaded chart for %s.", url)
 

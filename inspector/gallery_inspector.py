@@ -16,11 +16,21 @@ import os
 import re
 import logging
 from dataclasses import dataclass, field
+from html import escape
 from typing import Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
-FILENAME_PATTERN = re.compile(r"^(?P<date>\d{12})_(?P<projection>.+?)\.webp$", re.IGNORECASE)
+# Accept broader filename patterns from historical downloads:
+# 1) <date>_<projection>.webp (canonical)
+# 2) <prefix>_<date>_<projection>.webp (prefix like medium-uv-z)
+# 3) <prefix>_<date>.webp (projection omitted)
+# In case projection is omitted, we record it as "unknown".
+FILENAME_PATTERN = re.compile(
+    r"^(?:.+?_)?(?P<date>\d{12})(?:_(?P<projection>[^.]+))?\.webp$",
+    re.IGNORECASE,
+)
+
 DEFAULT_PROJECTIONS = [
     "opencharts_eastern_asia",
     "opencharts_eruasia",
@@ -154,7 +164,7 @@ class GalleryInspector:
                     stats.invalid_files.append(os.path.join(kind_path, filename))
                     continue
                 date_str = match.group("date")
-                projection = match.group("projection")
+                projection = match.group("projection") or "unknown"
                 stats.register(kind_name, date_str, projection)
 
         self.stats = stats
@@ -175,7 +185,7 @@ class GalleryInspector:
         if stats.invalid_files:
             logger.warning("Invalid filenames (pattern mismatch): %d", len(stats.invalid_files))
 
-    def gallery_info(self, examples_per_kind: int = 3) -> None:
+    def info(self, examples_per_kind: int = 3) -> None:
         """
         Print a concise human-readable summary to the logger.
         `examples_per_kind` limits how many missing-date examples to log per kind.
@@ -221,3 +231,86 @@ class GalleryInspector:
             # Log a few invalid filenames for diagnostics
             preview = stats.invalid_files[:min(5, len(stats.invalid_files))]
             logger.warning("Invalid filename examples: %s", "; ".join(preview))
+
+    # -------------------- HTML report --------------------
+    def to_html(self, examples_per_kind: int = 3) -> str:
+        if self.stats is None:
+            return "<p>No stats available. Call inspect() first.</p>"
+
+        stats = self.stats
+        def html_escape(s: str) -> str:
+            return escape(str(s))
+
+        parts = []
+        parts.append("<html><head><meta charset='utf-8'><title>Gallery Report</title>")
+        parts.append("<style>body{font-family:Arial,Helvetica,sans-serif;}")
+        parts.append("h1,h2,h3{margin:0.6em 0;} table{border-collapse:collapse;width:100%;margin:10px 0;}")
+        parts.append("th,td{border:1px solid #ddd;padding:6px;text-align:left;}")
+        parts.append("tr:nth-child(even){background:#fafafa;} .muted{color:#777;}")
+        parts.append(".mono{font-family:monospace;}")
+        parts.append("</style></head><body>")
+
+        parts.append("<h1>ECMWF Gallery 数据集报告</h1>")
+        parts.append(f"<p class='mono'>路径: {html_escape(stats.base_dir)}</p>")
+
+        # Global summary
+        parts.append("<h2>全局概览</h2>")
+        parts.append("<table>")
+        gmin, gmax = stats.global_date_range()
+        parts.append("<tr><th>总图像数</th><td>" + str(stats.total_images) + "</td></tr>")
+        parts.append("<tr><th>类别数</th><td>" + str(len(stats.kinds)) + "</td></tr>")
+        parts.append("<tr><th>全局日期范围</th><td>" + html_escape(f"{gmin or '-'} ~ {gmax or '-'}") + "</td></tr>")
+        if stats.per_projection_total:
+            proj_line = ", ".join(f"{html_escape(p)}: {c}" for p, c in sorted(stats.per_projection_total.items()))
+            parts.append("<tr><th>按投影计数</th><td>" + proj_line + "</td></tr>")
+        parts.append("</table>")
+
+        # Invalid filenames
+        if stats.invalid_files:
+            parts.append("<h3>无效文件名示例</h3><ul>")
+            for path in stats.invalid_files[: min(10, len(stats.invalid_files))]:
+                parts.append("<li class='mono'>" + html_escape(path) + "</li>")
+            parts.append("</ul>")
+
+        # Per-kind details
+        parts.append("<h2>按类别明细</h2>")
+        for kind, kind_stats in sorted(stats.kinds.items()):
+            parts.append(f"<h3>{html_escape(kind)}</h3>")
+            kmin, kmax = kind_stats.date_range()
+            parts.append("<table>")
+            parts.append("<tr><th>图像数</th><td>" + str(kind_stats.image_count) + "</td></tr>")
+            parts.append("<tr><th>唯一日期数</th><td>" + str(len(kind_stats.unique_dates)) + "</td></tr>")
+            parts.append("<tr><th>日期范围</th><td>" + html_escape(f"{kmin or '-'} ~ {kmax or '-'}") + "</td></tr>")
+            if kind_stats.per_projection_count:
+                proj = ", ".join(
+                    f"{html_escape(p)}: {c}" for p, c in sorted(kind_stats.per_projection_count.items())
+                )
+                parts.append("<tr><th>按投影计数</th><td>" + proj + "</td></tr>")
+            parts.append("</table>")
+
+            missing = kind_stats.missing_by_date(self.expected_projections)
+            if missing:
+                parts.append(
+                    f"<p>缺失覆盖：{len(missing)} 个日期（期望 {len(self.expected_projections)} 个投影）</p>"
+                )
+                parts.append("<table><tr><th>日期</th><th>缺失投影</th></tr>")
+                for idx, (date_str, absent) in enumerate(sorted(missing.items())):
+                    if idx >= examples_per_kind:
+                        parts.append(
+                            f"<tr><td colspan='2' class='muted'>... 以及 {len(missing) - examples_per_kind} 更多日期</td></tr>"
+                        )
+                        break
+                    parts.append(
+                        "<tr><td>" + html_escape(date_str) + "</td><td>" + html_escape(", ".join(absent)) + "</td></tr>"
+                    )
+                parts.append("</table>")
+            else:
+                parts.append("<p>所有列出的投影均完整覆盖。</p>")
+
+        parts.append("</body></html>")
+        return "".join(parts)
+
+    def save_html(self, filepath: str, examples_per_kind: int = 3) -> None:
+        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(self.to_html(examples_per_kind=examples_per_kind))

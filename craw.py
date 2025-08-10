@@ -10,7 +10,7 @@ import os
 import logging
 import multiprocessing
 from typing import Dict, List
-from crawler import download_gallery_task, Crawler, GalleryInspector
+from crawler import download_gallery_task, Crawler
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-GALLERY_DIR = 'gallery'
+GALLERY_DIR = 'train/gallery'
 
 param_list =  [ 'Wind',
                 'Mean sea level pressure',
@@ -50,15 +50,13 @@ def craw_from_ecmwf():
     with multiprocessing.Pool() as pool:
         tasks = []
         for kind, urls in gallery.items():
-            task = pool.apply_async(download_gallery_task, args=(kind, urls))
+            task = pool.apply_async(download_gallery_task, args=(GALLERY_DIR, kind, urls))
             tasks.append(task)
 
         for task in tasks:
             task.get()
 
-    inspector = GalleryInspector(GALLERY_DIR)
-    inspector.inspect()
-    inspector.gallery_info()
+    logger.info("Downloaded gallery to %s", GALLERY_DIR)
 
 if __name__ == "__main__":
     craw_from_ecmwf()

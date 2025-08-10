@@ -209,12 +209,11 @@ __marimo__/
 .DS_Store
 .vscode/
 
-# debug and development files
-gallery/
-debug_html/
-slides/
-extracted_images/
-classified_list.json
+# data files
+*classified_list.json
+train/
+income/
+reports/
 
 *.html
 *.webp

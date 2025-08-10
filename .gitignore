@@ -213,6 +213,7 @@ __marimo__/
 *classified_list.json
 train/
 income/
+reports/
 
 *.html
 *.webp

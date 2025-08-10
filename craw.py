@@ -18,7 +18,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-GALLERY_DIR = 'train/gallery'
+GALLERY_DIR = 'train_data/gallery'
 
 param_list =  [ 'Wind',
                 'Mean sea level pressure',

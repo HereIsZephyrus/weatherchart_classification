@@ -13,11 +13,11 @@ from .driver import Driver
 
 logger = logging.getLogger(__name__)
 
-def download_gallery_task(kind: str, urls: List[str]) -> None:
+def download_gallery_task(save_dir: str, kind: str, urls: List[str]) -> None:
     """
     Download the gallery.
     """
-    file_location = f"gallery/{kind}"
+    file_location = f"{save_dir}/{kind}"
     chart_crawler = ChartCrawler(file_location)
     os.makedirs(file_location, exist_ok=True)
     for url in urls:

@@ -16,8 +16,8 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-PPT_DIR = 'slides'
-IMAGE_DIR = 'extracted_images'
+PPT_DIR = 'income/slides'
+IMAGE_DIR = 'income/extracted_images'
 
 def extract_and_classify_source_from_pptx():
     """

@@ -12,7 +12,7 @@ import logging
 import os
 import sys
 from inspector import GalleryInspector, PPTInspector
-from .constants import GALLERY_DIR
+from constants import GALLERY_DIR
 
 logging.basicConfig(
     level=logging.INFO,

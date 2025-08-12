@@ -8,9 +8,12 @@ weather chart gallery crawling and filtering operations.
 Author: AI Assistant
 """
 
+import json
 import logging
 from typing import Dict, List, Optional, Set
 from selenium.common.exceptions import TimeoutException, WebDriverException
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.by import By
 from .driver import Driver
 from .gallery_selector import GallerySelector
 from .gallery_crawler import GalleryCrawler
@@ -157,3 +160,21 @@ class Crawler:
 
         logger.info("reorganized gallery")
         return new_gallery
+
+    def save_gallery_mapping(self, f, gallery: Dict[str, List[str]]) -> None:
+        """
+        Save the gallery mapping to a file.
+        """
+        mapping = {}
+        for urls in gallery.values():
+            for url in urls:
+                self.driver.connect(url)
+                try:
+                    title = self.driver(
+                        EC.presence_of_element_located((By.CLASS_NAME, "h2"))
+                    ).text
+                except TimeoutException:
+                    logger.warning("No title found for %s", url)
+                    continue
+                mapping[url] = title
+        json.dump(mapping, f)

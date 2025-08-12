@@ -11,7 +11,7 @@ import logging
 import multiprocessing
 from typing import Dict, List
 from crawler import download_gallery_task, Crawler
-from .constants import GALLERY_DIR
+from constants import GALLERY_DIR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +46,11 @@ def craw_from_ecmwf():
     gallery = crawler.reorganize_gallery(gallery)
 
     os.makedirs(GALLERY_DIR, exist_ok=True)
+
+    # save the webside-pruduct name mapping
+    with open(f"{GALLERY_DIR}/gallery.json", "w", encoding="utf-8") as f:
+        crawler.save_gallery_mapping(f, gallery)
+
     with multiprocessing.Pool() as pool:
         tasks = []
         for kind, urls in gallery.items():

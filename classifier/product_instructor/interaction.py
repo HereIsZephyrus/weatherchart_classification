@@ -33,7 +33,7 @@ def pick_a_random_image(kind: str) -> str:
     Pick a random image from the kind
     """
     img_path = os.path.abspath(
-        f"train/gallery/{kind}/{random.choice(os.listdir(f'train/gallery/{kind}'))}"
+        f"train_data/gallery/{kind}/{random.choice(os.listdir(f'train_data/gallery/{kind}'))}"
     )
     return convert_image_to_valid_type(img_path)
 

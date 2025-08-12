@@ -11,14 +11,13 @@ import logging
 import multiprocessing
 from typing import Dict, List
 from crawler import download_gallery_task, Crawler
+from .constants import GALLERY_DIR
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-GALLERY_DIR = 'train_data/gallery'
 
 param_list =  [ 'Wind',
                 'Mean sea level pressure',

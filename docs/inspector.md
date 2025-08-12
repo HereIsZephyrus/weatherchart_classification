@@ -6,7 +6,7 @@
 - PPTInspector：对 PPT 原始文件与提取图片进行检查（来源分布、命名规范、日期范围）。
 
 项目根目录中的 `statistics.py` 提供统一入口：
-- `python statistics.py gallery`：检查 `train/gallery` 下的图廊数据集，并输出 HTML 报告
+- `python statistics.py gallery`：检查 `train_data/gallery` 下的图廊数据集，并输出 HTML 报告
 - `python statistics.py ppt`：检查 `income` 下的 PPT 与提取图片，并输出 HTML 报告
 - `python statistics.py`：执行全部检查，并输出 HTML 报告
 
@@ -21,7 +21,7 @@ inspector/
 
 项目根目录中还包含：
 - `statistics.py`：统一入口脚本（支持 gallery/ppt 两种模式，默认生成 HTML 报告）
-- `train/gallery/`：图廊数据集目录
+- `train_data/gallery/`：图廊数据集目录
 - `income/`：PPT 相关目录（含 `slides/` 与 `extracted_images/`）
 - `reports/`：HTML 报告输出目录（运行后生成）
 
@@ -34,7 +34,7 @@ inspector/
 ```python
 from inspector import GalleryInspector
 
-inspector = GalleryInspector(base_dir="train/gallery")
+inspector = GalleryInspector(base_dir="train_data/gallery")
 stats = inspector.inspect()     # 计算统计
 inspector.gallery_info()        # 打印简要汇总到日志
 
@@ -137,7 +137,7 @@ python statistics.py
 
 - 目录不存在
   - 两个 Inspector 均会记录警告日志并返回空统计
-  - 检查目录结构是否符合预期（`train/gallery/` 或 `income/{slides,extracted_images}/`）
+  - 检查目录结构是否符合预期（`train_data/gallery/` 或 `income/{slides,extracted_images}/`）
 
 - 文件名不合规
   - GalleryInspector：检查 `.webp` 文件是否符合上述三种格式之一

@@ -2,12 +2,12 @@
 PPT Inspector module
 
 This module provides a utility to inspect the PPTX files in the `income/slides` directory,
-and the extracted images in the `income/extracted_images` directory.
+and the extracted images in the `IMAGE_DIR` directory.
 
 It computes counts per source, per extension, per date range, and per PPT.
 
 Expected directory layout (after extraction):
-  income/
+  INPUT_DIR/
     └── slides/
          └── <YYYYMMDD>-早会商-信息中心-实况.pptx
          └── aoc<YYYYMMDD>.pptx
@@ -31,6 +31,7 @@ import logging
 from dataclasses import dataclass, field
 from html import escape
 from typing import Dict, List, Optional, Set, Tuple
+from ..constants import INPUT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -134,12 +135,12 @@ def classify_ppt_name(ppt_name: str) -> Tuple[str, Optional[str]]:
 
 class PPTInspector:
     """
-    Inspect the `income` directory:
+    Inspect the `INPUT_DIR` directory:
     - slides: statistics for PPTX files (source distribution, date range, invalid filenames)
     - extracted_images: statistics for extracted images (source distribution, extension distribution, invalid filenames, per-PPT counts)
     """
 
-    def __init__(self, income_dir: str = "income"):
+    def __init__(self, income_dir: str = f"{INPUT_DIR}"):
         self.income_dir = os.path.abspath(income_dir)
         self.slides_dir = os.path.join(self.income_dir, "slides")
         self.images_dir = os.path.join(self.income_dir, "extracted_images")

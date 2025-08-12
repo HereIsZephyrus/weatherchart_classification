@@ -4,7 +4,7 @@ including the coverage, missing items, and projection distribution.
 
 Usage:
     python inspect.py           # inspect all data sets
-    python inspect.py gallery   # inspect the ECMWF gallery in train/gallery
+    python inspect.py gallery   # inspect the ECMWF gallery in GALLERY_DIR
     python inspect.py ppt       # inspect the PPT slides and extracted images in income/
 """
 
@@ -12,6 +12,7 @@ import logging
 import os
 import sys
 from inspector import GalleryInspector, PPTInspector
+from .constants import GALLERY_DIR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,9 +22,9 @@ logger = logging.getLogger(__name__)
 
 def inspect_gallery(save_html: bool = True):
     """
-    Inspect the ECMWF gallery in train_data/gallery
+    Inspect the ECMWF gallery in GALLERY_DIR
     """
-    gallery_inspector = GalleryInspector(base_dir="train_data/gallery")
+    gallery_inspector = GalleryInspector(base_dir=GALLERY_DIR)
     gallery_inspector.inspect()
     logger.info("Inspected the ECMWF gallery")
     gallery_inspector.info()
@@ -54,13 +55,13 @@ if __name__ == "__main__":
             logger.error("Unknown mode: %s (expected 'gallery' or 'ppt')", mode)
             sys.exit(1)
         if mode == "gallery":
-            logger.info("Inspecting the ECMWF gallery in train_data/gallery")
+            logger.info("Inspecting the ECMWF gallery in GALLERY_DIR")
             inspect_gallery()
         elif mode == "ppt":
-            logger.info("Inspecting the PPT slides and extracted images in income/")
+            logger.info("Inspecting the PPT slides and extracted images in INPUT_DIR")
             inspect_ppt()
         logger.info("Inspected the data set")
     else:
-        logger.info("Inspecting the ECMWF gallery in train/gallery and PPT slides and extracted images in income/")
+        logger.info("Inspecting the ECMWF gallery in GALLERY_DIR and PPT slides and extracted images in INPUT_DIR")
         inspect_gallery()
         inspect_ppt()

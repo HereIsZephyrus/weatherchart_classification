@@ -9,15 +9,13 @@ Usage:
 import os
 import logging
 from extractor import Extractor, SourceClassifier
+from .constants import PPT_DIR, IMAGE_DIR
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-PPT_DIR = 'income/slides'
-IMAGE_DIR = 'income/extracted_images'
 
 def extract_and_classify_source_from_pptx():
     """

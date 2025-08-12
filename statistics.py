@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 def inspect_gallery(save_html: bool = True):
     """
-    Inspect the ECMWF gallery in train/gallery
+    Inspect the ECMWF gallery in train_data/gallery
     """
-    gallery_inspector = GalleryInspector(base_dir="train/gallery")
+    gallery_inspector = GalleryInspector(base_dir="train_data/gallery")
     gallery_inspector.inspect()
     logger.info("Inspected the ECMWF gallery")
     gallery_inspector.info()
@@ -54,7 +54,7 @@ if __name__ == "__main__":
             logger.error("Unknown mode: %s (expected 'gallery' or 'ppt')", mode)
             sys.exit(1)
         if mode == "gallery":
-            logger.info("Inspecting the ECMWF gallery in train/gallery")
+            logger.info("Inspecting the ECMWF gallery in train_data/gallery")
             inspect_gallery()
         elif mode == "ppt":
             logger.info("Inspecting the PPT slides and extracted images in income/")

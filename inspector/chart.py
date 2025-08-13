@@ -30,11 +30,11 @@ class Chart:
     """
     name_mapping : Optional[dict[str, tuple[str, str]]] = None
 
-    def __init__(self, image_path: str):
+    def __init__(self, image_path: str, index: int = None):
         self.image_path = image_path
         self.image : Image.Image = Image.open(image_path)
         self.metadata = None
-        self.load_metadata()
+        self.load_metadata(index)
 
     def __del__(self):
         self.image.close()
@@ -56,11 +56,12 @@ class Chart:
         with open(GALLERY_MAPPING_BILINGUAL_PATH, "r", encoding="utf-8") as f:
             self.name_mapping = json.load(f)
 
-    def load_metadata(self):
+    def load_metadata(self, index: int):
         """
         Load metadata from image_path info
         """
         self.metadata.label = []
+        self.metadata.index = index
 
         if self.name_mapping is None:
             self.load_name_mapping()

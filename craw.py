@@ -10,8 +10,8 @@ import os
 import logging
 import multiprocessing
 from typing import Dict, List
-from crawler import download_gallery_task, Crawler
-from constants import GALLERY_DIR
+from .crawler import download_gallery_task, Crawler
+from .constants import GALLERY_DIR
 
 logging.basicConfig(
     level=logging.INFO,

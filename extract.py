@@ -8,8 +8,8 @@ Usage:
 
 import os
 import logging
-from extractor import Extractor, SourceClassifier
-from constants import PPT_DIR, IMAGE_DIR
+from .extractor import Extractor, SourceClassifier
+from .constants import PPT_DIR, IMAGE_DIR
 
 logging.basicConfig(
     level=logging.INFO,

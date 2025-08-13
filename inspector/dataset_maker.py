@@ -11,7 +11,7 @@ from enum import Enum
 from pydantic import BaseModel
 from .chart import Chart, ChartMetadata
 from .chart_enhancer import ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
-from ..constants import DATASET_DIR, GALLERY_DIR, RADER_RAW_DIR
+from ..constants import DATASET_DIR, GALLERY_DIR, RADAR_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -63,32 +63,12 @@ class DataBatchBuilder:
         self.metadata = metadata
         self.enhancer = ChartEnhancer(enhancer_config)
 
-    def collect_folder(self, folder_path: str = "") -> List[str]:
-        """
-        collect all images from the gallery directory
-        """
-        image_files = []
-
-        gallery_path = Path(folder_path)
-        if gallery_path.exists():
-            for img_file in gallery_path.glob("*.webp"):
-                image_files.append(str(img_file))
-        else:
-            logger.warning("No gallery path found")
-
-        return image_files
-
     def boostraping(self, sample_num: int, folder_path: str = "") -> List[str]:
         """
         boostraping sample list
         """
-        all_images = self.collect_folder(folder_path)
-        if not all_images:
-            logger.warning("No image files found")
-            return []
-
         # Bootstrapping
-        sampled_images = random.choices(all_images, k=sample_num)
+        sampled_images = random.choices(folder_path, k=sample_num)
         logger.info("Bootstrap sampling generated %d samples", len(sampled_images))
         return sampled_images
 
@@ -107,7 +87,7 @@ class DataBatchBuilder:
         """
         metadata_list : List[ChartMetadata] = []
         for index, image_path in enumerate(image_path_list):
-            chart = self.enhancer(Chart(image_path, index))
+            chart = self.enhancer(Chart(image_path, index=index))
             chart.save(save_dir / f"{index:04d}.png")
             metadata_list.append(chart.metadata)
 
@@ -118,6 +98,11 @@ class DataBatchBuilder:
         generate the radar data for a data batch
         """
         metadata_list : List[ChartMetadata] = []
+        sampled_images = random.choices(source_dir, k=sample_num)
+        for index, image_path in enumerate(sampled_images):
+            chart = self.enhancer(Chart(image_path, index=index))
+            chart.save(save_dir / f"{index:04d}.png")
+            metadata_list.append(chart.metadata)
         return metadata_list
 
     def build(self) -> None:
@@ -151,7 +136,7 @@ class DataBatchBuilder:
         radar_labels = self.sample_huggingface_dataset(
             sample_num=radar_num,
             save_dir=images_dir,
-            source_dir=RADER_RAW_DIR
+            source_dir=RADAR_DIR
         )
 
         total_labels = ecmwf_labels + radar_labels

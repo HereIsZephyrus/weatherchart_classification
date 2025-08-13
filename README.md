@@ -22,7 +22,8 @@
 ├── income/ # 放置待分类PPT和图片
 └── train_data/ # 放置训练需要的数据
         ├── gallery/ # ECMWF图表数据
-        ├── rader-dataset/ # 雷达降水数据. 来源: https://huggingface.co/datasets/deepguess/weather-analysis-data
+        ├── radar-dataset/ # 雷达降水数据. 来源: https://huggingface.co/datasets/deepguess/weather-analysis-data
+        ├── radar/ # 雷达降水数据, 从radar-dataset中解析的数据库
         └── logo/ # 放置各单位水印
 # 文档和配置
 ├── docker/ # 提供各类封装的Docker配置

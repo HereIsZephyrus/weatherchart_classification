@@ -7,9 +7,9 @@ import os
 import json
 import logging
 from typing import Dict, Any
-from datasets import load_dataset
+from datasets import load_from_disk, load_dataset
 from PIL import Image
-from ..constants import RADER_DIR
+from ..constants import RADAR_DIR, RADAR_RAW_DIR
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class RadarDatasetParser:
 
     def __init__(self):
         self.dataset = None
-        self.output_dir = os.path.abspath(RADER_DIR)
+        self.output_dir = os.path.abspath(RADAR_DIR)
         self.images_dir = os.path.join(self.output_dir, "images")
         self.labels_dir = os.path.join(self.output_dir, "labels")
 
@@ -38,10 +38,13 @@ class RadarDatasetParser:
         """
         load dataset from hugging face
         """
-        dataset_path = os.path.abspath(dataset_path)
         try:
             logger.info("loading dataset: %s", dataset_path)
-            self.dataset = load_dataset(dataset_path, split='train')
+            self.dataset = load_dataset(
+                "deepguess/weather-analysis-dataset",
+                cache_dir=os.path.abspath(dataset_path),
+                download_mode="reuse_cache_if_exists",
+            )
             logger.info("dataset loaded successfully, %d samples", len(self.dataset))
             return True
         except Exception as e:
@@ -160,7 +163,7 @@ class RadarDatasetParser:
 
         logger.info("dataset info saved to: %s", info_path)
 
-    def convert_dataset(self, dataset_path: str):
+    def convert_dataset(self):
         """
         execute complete dataset conversion process
         """
@@ -170,7 +173,7 @@ class RadarDatasetParser:
         self.setup_directories()
 
         # load dataset
-        if not self.load_dataset(dataset_path):
+        if not self.load_dataset(RADAR_RAW_DIR):
             return False
 
         # convert each sample

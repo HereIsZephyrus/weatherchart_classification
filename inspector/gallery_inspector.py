@@ -232,8 +232,10 @@ class GalleryInspector:
             preview = stats.invalid_files[:min(5, len(stats.invalid_files))]
             logger.warning("Invalid filename examples: %s", "; ".join(preview))
 
-    # -------------------- HTML report --------------------
     def to_html(self, examples_per_kind: int = 3) -> str:
+        """
+        Convert the stats to an HTML report
+        """
         if self.stats is None:
             return "<p>No stats available. Call inspect() first.</p>"
 
@@ -311,6 +313,9 @@ class GalleryInspector:
         return "".join(parts)
 
     def save_html(self, filepath: str, examples_per_kind: int = 3) -> None:
+        """
+        Save the HTML report to a file
+        """
         os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
         with open(filepath, "w", encoding="utf-8") as f:
             f.write(self.to_html(examples_per_kind=examples_per_kind))

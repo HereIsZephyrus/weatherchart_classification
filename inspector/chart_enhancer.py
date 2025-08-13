@@ -225,3 +225,116 @@ class ChartEnhancer:
 
     def __str__(self) -> str:
         return self.config.model_dump_json()
+
+EnhancerConfigPresets = {
+    "None": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.0,
+        add_title_prob=0.0,
+        clip_chart_prob=0.0,
+        hue_shift_prob=0.0,
+        contrast_prob=0.0,
+        brightness_prob=0.0,
+        saturation_prob=0.0
+    ),
+    "HighClipLowNoise": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.2,
+        add_title_prob=0.2,
+        clip_chart_prob=0.8,  # high clip probability
+        hue_shift_prob=0.1,   # low image variation
+        contrast_prob=0.1,
+        brightness_prob=0.1,
+        saturation_prob=0.1
+    ),
+    "MediumWatermarkLowClip": EnhancerConfig(
+        use_clip=False,
+        add_logo_prob=0.5,    # medium watermark probability
+        add_title_prob=0.4,
+        clip_chart_prob=0.2,  # low clip probability
+        hue_shift_prob=0.2,
+        contrast_prob=0.2,
+        brightness_prob=0.2,
+        saturation_prob=0.2
+    ),
+    "HighWatermarkStable": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.7,    # high watermark probability
+        add_title_prob=0.8,
+        clip_chart_prob=0.1,  # low clip probability
+        hue_shift_prob=0.1,   # low image variation
+        contrast_prob=0.1,
+        brightness_prob=0.1,
+        saturation_prob=0.1
+    ),
+    "BalancedEnhance": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.4,    # balanced watermark probability
+        add_title_prob=0.4,
+        clip_chart_prob=0.4,  # balanced clip probability
+        hue_shift_prob=0.3,   # moderate image variation
+        contrast_prob=0.3,
+        brightness_prob=0.3,
+        saturation_prob=0.3
+    ),
+    "HighColorVariation": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.2,
+        add_title_prob=0.2,
+        clip_chart_prob=0.2,
+        hue_shift_prob=0.8,   # high hue variation
+        contrast_prob=0.2,
+        brightness_prob=0.4,
+        saturation_prob=0.4
+    ),
+    "NightModeSimulation": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.3,
+        add_title_prob=0.3,
+        clip_chart_prob=0.2,
+        hue_shift_prob=0.4,
+        contrast_prob=0.8,    # high contrast
+        brightness_prob=0.9,  # high brightness adjustment
+        saturation_prob=0.5
+    ),
+    "PrintStyleSimulation": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.9,    # high watermark prob
+        add_title_prob=0.9,
+        clip_chart_prob=0.1,
+        hue_shift_prob=0.2,
+        contrast_prob=0.4,    # medium contrast
+        brightness_prob=0.3,
+        saturation_prob=0.2   # low saturation
+    ),
+    "WeatherAppStyle": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.6,    # high watermark probability
+        add_title_prob=0.7,   # high title
+        clip_chart_prob=0.5,  # medium clip
+        hue_shift_prob=0.3,
+        contrast_prob=0.5,    # medium contrast
+        brightness_prob=0.4,
+        saturation_prob=0.6   # high saturation
+    ),
+    "PresentationReady": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=0.95,   # almost always add watermark
+        add_title_prob=0.95,  # almost always add title
+        clip_chart_prob=0.3,  # low clip
+        hue_shift_prob=0.2,   # low hue variation
+        contrast_prob=0.4,    # medium contrast
+        brightness_prob=0.3,  # low brightness adjustment
+        saturation_prob=0.4   # medium saturation
+    ),
+    "ExtremeVariation": EnhancerConfig(
+        use_clip=True,
+        add_logo_prob=1.0,
+        add_title_prob=1.0,
+        clip_chart_prob=0.9,
+        hue_shift_prob=0.9,
+        contrast_prob=0.9,
+        brightness_prob=0.9,
+        saturation_prob=0.9
+    )
+}

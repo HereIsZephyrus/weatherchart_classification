@@ -4,7 +4,7 @@ Abstract chart class from Pillow image and dataset metadata
 
 import json
 import os
-from typing import List, Any, Optional
+from typing import List, Optional
 import logging
 import random
 from datetime import datetime
@@ -30,7 +30,7 @@ class Chart:
     """
     name_mapping : Optional[dict[str, tuple[str, str]]] = None
 
-    def __init__(self, image_path: str, index: int):
+    def __init__(self, image_path: str):
         self.image_path = image_path
         self.image : Image.Image = Image.open(image_path)
         self.metadata = None
@@ -79,7 +79,7 @@ class Chart:
         day = random.randint(1, 30)
         if month == 2 and day > 28:
             day = 28
-        return f"{year}年{month}月{day}日{self.zh_name}图"
+        return f"{year}年{month}月{day}日{self.metadata.zh_name}图"
 
     def save(self, save_path: str):
         """

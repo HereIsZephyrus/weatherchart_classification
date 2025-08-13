@@ -67,9 +67,15 @@ class DataBatchBuilder:
         """
         boostraping sample list
         """
+        # Get list of image files in the folder
+        folder = Path(folder_path)
+        image_files = [str(f) for f in folder.glob("*.webp")]
+        if not image_files:
+            return []
+            
         # Bootstrapping
-        sampled_images = random.choices(folder_path, k=sample_num)
-        logger.info("Bootstrap sampling generated %d samples", len(sampled_images))
+        sampled_images = random.choices(image_files, k=sample_num)
+        logger.info("Bootstrap sampling generated %d samples from %s", len(sampled_images), folder_path)
         return sampled_images
 
     def select_type(self) -> List[str]:
@@ -77,8 +83,16 @@ class DataBatchBuilder:
         select the type of the data batch
         """
         percentage = self.metadata.role.value[1]
-        size = int(self.metadata.size * percentage)
-        selected_types = random.choices(GALLERY_DIR, k=size)
+
+        # Get list of subdirectories in GALLERY_DIR
+        gallery_path = Path(GALLERY_DIR)
+        type_dirs = [str(d) for d in gallery_path.iterdir() if d.is_dir()]
+        if not type_dirs:
+            logger.warning("No subdirectories found in %s", GALLERY_DIR)
+            return []
+
+        size = int(len(type_dirs) * percentage)
+        selected_types = random.choices(type_dirs, k=size)
         return selected_types
 
     def generate_image_dataset(self, image_path_list: List[str], save_dir: Path) -> List[ChartMetadata]:
@@ -86,7 +100,10 @@ class DataBatchBuilder:
         generate the data for a data batch
         """
         metadata_list : List[ChartMetadata] = []
-        for index, image_path in enumerate(image_path_list):
+        index_list = list(range(len(image_path_list)))
+        random.shuffle(index_list)
+        for i, image_path in enumerate(image_path_list):
+            index = index_list[i]
             chart = self.enhancer(Chart(image_path, index=index))
             chart.save(save_dir / f"{index:04d}.png")
             metadata_list.append(chart.metadata)
@@ -98,7 +115,15 @@ class DataBatchBuilder:
         generate the radar data for a data batch
         """
         metadata_list : List[ChartMetadata] = []
-        sampled_images = random.choices(source_dir, k=sample_num)
+        
+        # Get list of image files in the source directory
+        source_path = Path(source_dir)
+        image_files = [str(f) for f in source_path.glob("*.png")]
+        if not image_files:
+            logger.warning("No image files found in %s", source_dir)
+            return metadata_list
+            
+        sampled_images = random.choices(image_files, k=sample_num)
         for index, image_path in enumerate(sampled_images):
             chart = self.enhancer(Chart(image_path, index=index))
             chart.save(save_dir / f"{index:04d}.png")
@@ -132,14 +157,14 @@ class DataBatchBuilder:
             save_dir=images_dir
         )
 
-        radar_num = self.metadata.size - len(sampled_images)
-        radar_labels = self.sample_huggingface_dataset(
-            sample_num=radar_num,
-            save_dir=images_dir,
-            source_dir=RADAR_DIR
-        )
+        #radar_num = self.metadata.size - len(sampled_images)
+        #radar_labels = self.sample_huggingface_dataset(
+        #    sample_num=radar_num,
+        #    save_dir=images_dir,
+        #    source_dir=RADAR_DIR
+        #)
 
-        total_labels = ecmwf_labels + radar_labels
+        total_labels = ecmwf_labels# + radar_labels
         with open(labels_dir / "labels.json", "w", encoding="utf-8") as f:
             json.dump(total_labels, f, ensure_ascii=False, indent=2)
 
@@ -239,8 +264,18 @@ class DatasetManager:
         # ensure the output directory exists
         self.dataset_dir.mkdir(parents=True, exist_ok=True)
 
+        preset_keys = list(EnhancerConfigPresets.keys())
+        preset_values = list(EnhancerConfigPresets.values())
         for metadata in self.batch_metadata_list:
-            builder = DataBatchBuilder(metadata)
+            enhancer_config_index = random.randint(0, len(preset_keys) - 1)
+            if preset_keys[enhancer_config_index] == "None" or \
+               preset_keys[enhancer_config_index] == "ExtremeVariation":
+                # if extreme, roll again to decrease the probability
+                enhancer_config_index = random.randint(0, len(preset_keys) - 1)
+            builder = DataBatchBuilder(
+                metadata=metadata,
+                enhancer_config=preset_values[enhancer_config_index]
+            )
             builder.build()
             logger.info("Built batch %s", metadata.name)
 

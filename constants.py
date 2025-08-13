@@ -12,7 +12,7 @@ INPUT_DIR = f'{__package__}/income'
 PPT_DIR = f'{INPUT_DIR}/slides'
 IMAGE_DIR = f'{INPUT_DIR}/extracted_images'
 LOGO_DIR = f'{TRAIN_DATA_DIR}/logo'
-IMAGE_SIZE = (320, 240)
+IMAGE_SIZE = (480, 360)
 DATASET_DIR = f'{__package__}/dataset'
 
 __all__ = [

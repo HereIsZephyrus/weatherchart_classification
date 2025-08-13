@@ -59,22 +59,24 @@ class ChartEnhancer:
         """
         clip_ratio = random.uniform(0.6, 0.9)
         image_ratio = chart.image.width / chart.image.height
+        if image_ratio > 3 or image_ratio < 0.3:
+            return chart # do not clip the image if it is too wide or too narrow
         target_ratio = IMAGE_SIZE[0] / IMAGE_SIZE[1]
-        if image_ratio > target_ratio: # image is wider than target
-            new_width = chart.image.height * clip_ratio
-            new_height = chart.image.width / clip_ratio
-            max_start_width = chart.image.width - new_width-1
-            max_start_height = chart.image.height - new_height-1
+        if image_ratio < target_ratio: # image is taller than target
+            new_width = int(chart.image.width * clip_ratio)
+            new_height = int(new_width / target_ratio)
+            max_start_width = chart.image.width - new_width - 1
+            max_start_height = chart.image.height - new_height - 1
             start_width = random.randint(0, max_start_width)
             start_height = random.randint(0, max_start_height)
             chart.image = chart.image.crop((start_width, start_height, start_width + new_width, start_height + new_height))
             return chart
 
-        # image is taller than target
-        new_height = chart.image.width * clip_ratio
-        new_width = chart.image.height / clip_ratio
-        max_start_height = chart.image.height - new_height-1
-        max_start_width = chart.image.width - new_width-1
+        # image is wider than target
+        new_height = int(chart.image.height * clip_ratio)
+        new_width = int(new_height / target_ratio)
+        max_start_height = chart.image.height - new_height - 1
+        max_start_width = chart.image.width - new_width - 1
         start_height = random.randint(0, max_start_height)
         start_width = random.randint(0, max_start_width)
         chart.image = chart.image.crop((start_width, start_height, start_width + new_width, start_height + new_height))
@@ -132,6 +134,11 @@ class ChartEnhancer:
         """
         logo_path = os.path.join(LOGO_DIR, random.choice(os.listdir(LOGO_DIR)))
         logo = Image.open(logo_path)
+        
+        # Convert logo to RGBA if it isn't already
+        if logo.mode != 'RGBA':
+            logo = logo.convert('RGBA')
+
         corner_index = random.randint(0, 3) # stand for top-left, top-right, bottom-left, bottom-right
         if corner_index == 0:
             chart.image.paste(logo, (0, 0))
@@ -152,24 +159,36 @@ class ChartEnhancer:
 
         # Try to use a larger font for title
         try:
-            font = ImageFont.truetype("arial.ttf", 10)
+            font = ImageFont.truetype("/usr/share/fonts/truetype/unifont/unifont_sample.ttf", 16)
         except (OSError, IOError):
             font = ImageFont.load_default()
 
         # Calculate text size and center position
         text_bbox = draw.textbbox((0, 0), title_str, font=font)
         text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
 
         # Center horizontally, place at top with margin
         x = (chart.image.width - text_width) // 2
         y = 10
+        padding = 10  # Padding around text
 
         # Add semi-transparent background
         overlay = Image.new('RGBA', chart.image.size, (255, 255, 255, 0))
         overlay_draw = ImageDraw.Draw(overlay)
 
+        # Draw background rectangle with semi-transparent white
+        background_bbox = (
+            x - padding,
+            y - padding,
+            x + text_width + padding,
+            y + text_height + padding
+        )
+        overlay_draw.rectangle(background_bbox, fill=(255, 255, 255, 180))
+
         # Draw title text
-        overlay_draw.text((x, y), title_str, fill=(0, 0, 0, 255), font=font)
+        fill_color = random.choice([(0, 0, 0, 255), (255, 0, 0, 255)])  # 只使用黑色或红色文字
+        overlay_draw.text((x, y), title_str, fill=fill_color, font=font)
 
         # Composite with original image
         if chart.image.mode != 'RGBA':
@@ -186,7 +205,17 @@ class ChartEnhancer:
             chart = self.clip_chart_area(chart)
             logger.debug("Applied clipping")
 
+        # Add logo watermark
+        if random.random() < self.config.add_logo_prob:
+            chart = self.add_logo_watermark(chart)
+            logger.debug("Added logo")
+
+        # First adjust the size to ensure consistent dimensions
         chart = self.adjust_size(chart)
+
+        # Convert to RGBA mode for operations that need alpha channel
+        if chart.image.mode != 'RGBA':
+            chart.image = chart.image.convert('RGBA')
 
         # Apply hue shift
         if random.random() < self.config.hue_shift_prob:
@@ -208,15 +237,14 @@ class ChartEnhancer:
             chart = self.change_chart_saturation(chart)
             logger.debug("Applied saturation")
 
-        # Add logo watermark
-        if random.random() < self.config.add_logo_prob:
-            chart = self.add_logo_watermark(chart)
-            logger.debug("Added logo: %s")
-
         # Add chart title
         if random.random() < self.config.add_title_prob:
             chart = self.add_chart_title(chart)
-            logger.debug("Added title: %s", chart.en_name)
+            logger.debug("Added title")
+
+        # Ensure final image is in RGB mode
+        if chart.image.mode != 'RGB':
+            chart.image = chart.image.convert('RGB')
 
         return chart
 

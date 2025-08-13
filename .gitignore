@@ -214,6 +214,7 @@ __marimo__/
 train_data/
 income/
 reports/
+dataset/
 
 *.html
 *.webp

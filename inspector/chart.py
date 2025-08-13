@@ -4,6 +4,7 @@ Abstract chart class from Pillow image and dataset metadata
 
 import json
 import os
+import re
 from typing import List, Optional
 import logging
 import random
@@ -33,21 +34,23 @@ class Chart:
     def __init__(self, image_path: str, index: int = None):
         self.image_path = image_path
         self.image : Image.Image = Image.open(image_path)
-        self.metadata = None
+        self._metadata = None
         self.load_metadata(index)
 
     def __del__(self):
         self.image.close()
 
     def __str__(self):
-        return f"{self.metadata.en_name}({self.metadata.zh_name}): publish time<{self.metadata.time}>, label<{self.metadata.label}>. {self.image_path}"
+        return f"{self._metadata.en_name}({self._metadata.zh_name}): publish time<{self._metadata.time}>, label<{self._metadata.label}>. {self.image_path}"
 
     @property
     def metadata(self) -> ChartMetadata:
         """
         Get the metadata of the chart
         """
-        return self.metadata
+        result = self._metadata.model_dump()
+        result["time"] = result["time"].strftime("%Y-%m-%d %H:%M:%S") # convert datetime to string
+        return result
 
     def load_name_mapping(self):
         """
@@ -60,16 +63,21 @@ class Chart:
         """
         Load metadata from image_path info
         """
-        self.metadata.label = []
-        self.metadata.index = index
-
         if self.name_mapping is None:
             self.load_name_mapping()
 
-        basename = os.path.basename(self.image_path)
-        elements = basename.split("_")[1]
-        self.metadata.time = datetime.strptime(elements, "%Y%m%d%H%M")
-        self.metadata.en_name, self.metadata.zh_name = self.name_mapping[basename]
+        basename = os.path.basename(self.image_path).split(".")[0]
+        time = re.search(r"\d{12}", basename).group(0) # YYYYMMDDHHMM
+        product_name = basename.split(time)[0][:-1] # the last char is "_"
+
+        # Create new metadata instance
+        self._metadata = ChartMetadata(
+            index=index,
+            en_name=self.name_mapping[product_name]['en'],
+            zh_name=self.name_mapping[product_name]['zh'],
+            time=datetime.strptime(time, "%Y%m%d%H%M"),
+            label=[]
+        )
 
     def construct_title(self) -> str:
         """
@@ -80,7 +88,7 @@ class Chart:
         day = random.randint(1, 30)
         if month == 2 and day > 28:
             day = 28
-        return f"{year}年{month}月{day}日{self.metadata.zh_name}图"
+        return f"{year}年{month}月{day}日{self._metadata.zh_name}图".encode('utf-8').decode('utf-8')
 
     def save(self, save_path: str):
         """

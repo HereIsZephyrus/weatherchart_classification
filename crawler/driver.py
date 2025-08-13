@@ -17,9 +17,9 @@ class Driver:
     """
     Driver class that manages WebDriver and coordinates gallery operations.
     """
-    def __init__(self, wait_timeout: int = 30, user_agent: Optional[str] = None):
+    def __init__(self, wait_timeout: int = 30):
         self.wait_timeout = wait_timeout
-        self.user_agent = user_agent
+        self.user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"
         self.driver = None
         self.wait = None
         self.base_url = "https://charts.ecmwf.int/"
@@ -45,6 +45,14 @@ class Driver:
             # Custom user agent
             if self.user_agent:
                 chrome_options.add_argument(f'--user-agent={self.user_agent}')
+
+            # Configure proxy if available in environment variable
+            https_proxy = os.getenv('https_proxy') or os.getenv('HTTPS_PROXY')
+            if https_proxy:
+                logger.info("Using proxy: %s", https_proxy)
+                chrome_options.add_argument(f'--proxy-server={https_proxy}')
+            else:
+                logger.info("No proxy configured (https_proxy environment variable not set)")
 
             # Initialize driver
             self.driver = webdriver.Chrome(options=chrome_options)

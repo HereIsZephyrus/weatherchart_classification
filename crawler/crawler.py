@@ -166,15 +166,16 @@ class Crawler:
         Save the gallery mapping to a file.
         """
         mapping = {}
-        for urls in gallery.values():
+        for key, urls in gallery.items():
             for url in urls:
                 self.driver.connect(url)
                 try:
                     title = self.driver(
-                        EC.presence_of_element_located((By.CLASS_NAME, "h2"))
+                        EC.presence_of_element_located((By.TAG_NAME, "h2"))
                     ).text
                 except TimeoutException:
                     logger.warning("No title found for %s", url)
                     continue
-                mapping[url] = title
+                mapping[url.split("/")[-1]] = title
+            logger.info("saved %d url mapping for %s", len(urls), key)
         json.dump(mapping, f)

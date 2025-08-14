@@ -211,9 +211,10 @@ __marimo__/
 
 # data files
 *classified_list.json
-train/
+train_data/
 income/
 reports/
+dataset/
 
 *.html
 *.webp

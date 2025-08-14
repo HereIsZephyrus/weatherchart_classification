@@ -10,15 +10,14 @@ import os
 import logging
 import multiprocessing
 from typing import Dict, List
-from crawler import download_gallery_task, Crawler
+from .crawler import download_gallery_task, Crawler, reorganize_gallery
+from .constants import GALLERY_DIR
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-GALLERY_DIR = 'train/gallery'
 
 param_list =  [ 'Wind',
                 'Mean sea level pressure',
@@ -44,9 +43,14 @@ def craw_from_ecmwf():
         crawler.filter([param])
         gallery[param] = crawler.extract_chart_hrefs()
 
-    gallery = crawler.reorganize_gallery(gallery)
+    gallery = reorganize_gallery(gallery)
 
     os.makedirs(GALLERY_DIR, exist_ok=True)
+
+    # save the webside-pruduct name mapping
+    with open(f"{GALLERY_DIR}/gallery.json", "w", encoding="utf-8") as f:
+        crawler.save_gallery_mapping(f, gallery)
+
     with multiprocessing.Pool() as pool:
         tasks = []
         for kind, urls in gallery.items():

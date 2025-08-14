@@ -1,10 +1,11 @@
 """
 Configuration classes for the CNN-RNN unified framework training.
 """
+from typing import ClassVar
 import logging
 from pydantic import BaseModel
 from inspector.dataset_maker import DatasetConfig
-from ..constants import DATASET_DIR, IMAGE_SIZE
+from ..constants import BATCH_NUM, SINGLE_BATCH_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -16,8 +17,8 @@ class CNNconfig(BaseModel):
         cnn_feature_dim: CNN feature dimension
         cnn_dropout: CNN dropout rate
     """
-    cnn_backbone = "resnet50"
-    cnn_feature_dim = 2048
+    cnn_backbone: ClassVar[str] = "resnet50"
+    cnn_feature_dim: ClassVar[int] = 2048
     cnn_dropout: float
     
 class RNNconfig(BaseModel):
@@ -30,11 +31,11 @@ class RNNconfig(BaseModel):
         rnn_dropout: RNN dropout rate
         rnn_bidirectional: RNN bidirectional
     """
-    rnn_type = "LSTM"
+    rnn_type:ClassVar[str] = "LSTM"
     rnn_num_layers: int
     rnn_hidden_dim: int
     rnn_dropout: float
-    rnn_bidirectional = False
+    rnn_bidirectional:ClassVar[bool] = False
 
 class UnifiedConfig(BaseModel):
     """
@@ -58,9 +59,9 @@ class TokenConfig(BaseModel):
         eos_token_id: EOS token id
         pad_token_id: PAD token id
     """
-    bos_token_id = 0
-    eos_token_id = 1
-    pad_token_id = 2
+    bos_token_id: ClassVar[int] = 0
+    eos_token_id: ClassVar[int] = 1
+    pad_token_id: ClassVar[int] = 2
 
 class LabelConfig(BaseModel):
     """
@@ -70,9 +71,9 @@ class LabelConfig(BaseModel):
         label_embedding_dim: Label embedding dimension
         max_sequence_length: Max sequence length
     """
-    _num_labels = 0
-    label_embedding_dim = 256
-    max_sequence_length = 5
+    _num_labels: ClassVar[int] = 0
+    label_embedding_dim: ClassVar[int] = 256
+    max_sequence_length: ClassVar[int] = 5
 
     @property
     def num_labels(self) -> int:
@@ -82,7 +83,8 @@ class LabelConfig(BaseModel):
 
     @classmethod
     def count_label(cls) -> int:
-        return 0
+        dataset_config = DatasetConfig(batch_num=BATCH_NUM, single_batch_size=SINGLE_BATCH_SIZE)
+        return len(dataset_config.label_list)
 
 class BasicTrainingConfig(BaseModel):
     """
@@ -109,22 +111,22 @@ class LearningStrategyConfig(BaseModel):
         warmup_learning_rate: Warmup learning rate
     """
     # learning rate
-    warmup_epochs = 5
-    freeze_cnn_during_warmup = True
+    warmup_epochs: ClassVar[int] = 5
+    freeze_cnn_during_warmup: ClassVar[bool] = True
     cnn_learning_rate: float
     rnn_learning_rate: float
     warmup_learning_rate: float
     # Teacher Forcing Schedule
-    teacher_forcing_start = 1.0
-    teacher_forcing_end = 0.7
-    teacher_forcing_decay = "linear"  # linear, exponential
+    teacher_forcing_start: ClassVar[float] = 1.0
+    teacher_forcing_end: ClassVar[float] = 0.7
+    teacher_forcing_decay: ClassVar[str] = "linear"  # linear, exponential
     # Focal Loss for Class Imbalance
-    use_focal_loss = True
-    focal_alpha = 0.25
-    focal_gamma = 2.0
+    use_focal_loss: ClassVar[bool] = True
+    focal_alpha: ClassVar[float] = 0.25
+    focal_gamma: ClassVar[float] = 2.0
     # Label Order Strategy
-    label_order_strategy = "frequency"  # frequency, random, fixed
-    random_order_ratio = 0.2  # 20% samples use random order
+    label_order_strategy: ClassVar[str] = "frequency"  # frequency, random, fixed
+    random_order_ratio: ClassVar[float] = 0.2  # 20% samples use random order
 
 class OptimizerConfig(BaseModel):
     """
@@ -136,7 +138,7 @@ class OptimizerConfig(BaseModel):
         adam_beta2: Adam beta2
         adam_epsilon: Adam epsilon
     """
-    optimizer = "AdamW"
+    optimizer: str = "AdamW"
     weight_decay: float
     adam_beta1: float
     adam_beta2: float
@@ -168,13 +170,13 @@ class ValidationConfig(BaseModel):
         early_stopping_threshold: Early stopping threshold
     """
     # Validation and Saving
-    eval_steps = 500
-    save_steps = 1000
-    save_total_limit = 3
-    metric_for_best_model = "eval_f1_macro"
-    greater_is_better = True
+    eval_steps: ClassVar[int] = 500
+    save_steps: ClassVar[int] = 1000
+    save_total_limit: ClassVar[int] = 3
+    metric_for_best_model: ClassVar[str] = "eval_f1_macro"
+    greater_is_better: ClassVar[bool] = True
     # Early Stopping
-    early_stopping = True
+    early_stopping: ClassVar[bool] = True
     early_stopping_patience: int
     early_stopping_threshold: float
 
@@ -182,28 +184,37 @@ class Hyperparameter(BaseModel):
     """
     Hyperparameter list that can be configured
     """
-    cnn_dropout : float
-    rnn_num_layers : int
-    rnn_hidden_dim : int
-    rnn_dropout : float
-    beam_width : int
-    beam_max_length : int
-    beam_early_stopping : bool
+    # CNN Parameters
+    cnn_dropout: float
+    # RNN Parameters
+    rnn_num_layers: int
+    rnn_hidden_dim: int
+    rnn_dropout: float
+    # Beam Search Parameters
+    beam_width: int
+    beam_max_length: int
+    beam_early_stopping: bool
+    # Model Architecture Parameters
     joint_embedding_dim: int
-    early_stopping_patience: int
-    early_stopping_threshold: float
+    # Training Control Parameters
     gradient_accumulation_steps: int
     max_grad_norm: float
+    # Learning Rate Parameters
     cnn_learning_rate: float
     rnn_learning_rate: float
     warmup_learning_rate: float
+    # Optimizer Parameters
     weight_decay: float
     adam_beta1: float
     adam_beta2: float
     adam_epsilon: float
+    # Loss Weight Parameters
     bce_loss_weight: float
     sequence_loss_weight: float
     coverage_loss_weight: float
+    # Early Stopping Parameters
+    early_stopping_patience: int
+    early_stopping_threshold: float
 
 class ModelConfig:
     """
@@ -227,8 +238,8 @@ class ModelConfig:
         self.token_config = TokenConfig()
         self.label_config = LabelConfig()
         self.basic_config = BasicTrainingConfig(
-            num_epochs=parameter.num_epochs,
-            batch_size=parameter.batch_size,
+            num_epochs=BATCH_NUM,
+            batch_size=SINGLE_BATCH_SIZE,
             gradient_accumulation_steps=parameter.gradient_accumulation_steps,
             max_grad_norm=parameter.max_grad_norm
         )
@@ -283,26 +294,35 @@ class ModelConfig:
             raise ValueError(f"Unknown stage: {stage}")
 
 default_hyperparameter = Hyperparameter(
+    # CNN Parameters
     cnn_dropout = 0.1,
+    # RNN Parameters
     rnn_num_layers = 2,
     rnn_hidden_dim = 384,
     rnn_dropout = 0.2,
+    # Beam Search Parameters
     beam_width = 2,
     beam_max_length = 10,
     beam_early_stopping = True,
+    # Model Architecture Parameters
     joint_embedding_dim = 256,
-    early_stopping_patience = 5,
-    early_stopping_threshold = 0.001,
+    # Training Control Parameters
     gradient_accumulation_steps = 1,
     max_grad_norm = 1.0,
+    # Learning Rate Parameters
     cnn_learning_rate = 1e-4,
     rnn_learning_rate = 5e-4,
     warmup_learning_rate = 2e-3,
+    # Optimizer Parameters
     weight_decay = 0.01,
     adam_beta1 = 0.9,
     adam_beta2 = 0.999,
     adam_epsilon = 1e-8,
+    # Loss Weight Parameters
     bce_loss_weight = 1.0,
     sequence_loss_weight = 0.5,
-    coverage_loss_weight = 0.1
+    coverage_loss_weight = 0.1,
+    # Early Stopping Parameters
+    early_stopping_patience = 5,
+    early_stopping_threshold = 0.001
 )

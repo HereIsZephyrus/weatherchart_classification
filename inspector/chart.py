@@ -8,7 +8,6 @@ import re
 from typing import List, Optional
 import logging
 import random
-from datetime import datetime
 from PIL import Image
 from pydantic import BaseModel
 from ..constants import GALLERY_MAPPING_BILINGUAL_PATH
@@ -21,9 +20,9 @@ class ChartMetadata(BaseModel):
     """
     index: int
     en_name: str
-    zh_name: str
-    time: datetime
+    zh_name: Optional[str] = None
     label: List[str]
+    summary: Optional[str] = None
 
 class Chart:
     """
@@ -31,17 +30,20 @@ class Chart:
     """
     name_mapping : Optional[dict[str, tuple[str, str]]] = None
 
-    def __init__(self, image_path: str, index: int = None):
+    def __init__(self, image_path: str, index: int, info: dict = None):
         self.image_path = image_path
         self.image : Image.Image = Image.open(image_path)
         self._metadata = None
-        self.load_metadata(index)
+        if info is None:
+            self.load_metadata(index)
+        else:
+            self.load_metadata_from_info(index, info)
 
     def __del__(self):
         self.image.close()
 
     def __str__(self):
-        return f"{self._metadata.en_name}({self._metadata.zh_name}): publish time<{self._metadata.time}>, label<{self._metadata.label}>. {self.image_path}"
+        return f"{self._metadata.en_name}({self._metadata.zh_name}): label<{self._metadata.label}>. {self.image_path}"
 
     @property
     def metadata(self) -> ChartMetadata:
@@ -49,7 +51,6 @@ class Chart:
         Get the metadata of the chart
         """
         result = self._metadata.model_dump()
-        result["time"] = result["time"].strftime("%Y-%m-%d %H:%M:%S") # convert datetime to string
         return result
 
     def load_name_mapping(self):
@@ -58,6 +59,17 @@ class Chart:
         """
         with open(GALLERY_MAPPING_BILINGUAL_PATH, "r", encoding="utf-8") as f:
             self.name_mapping = json.load(f)
+
+    def load_metadata_from_info(self, index: int, info: dict):
+        """
+        Load metadata from info
+        """
+        self._metadata = ChartMetadata(
+            index=index,
+            en_name=info['en'],
+            label=info['feature'],
+            summary=info['summary'],
+        )
 
     def load_metadata(self, index: int):
         """
@@ -75,8 +87,7 @@ class Chart:
             index=index,
             en_name=self.name_mapping[product_name]['en'],
             zh_name=self.name_mapping[product_name]['zh'],
-            time=datetime.strptime(time, "%Y%m%d%H%M"),
-            label=[]
+            label=os.path.abspath(self.image_path).split("/")[-2].split("A")
         )
 
     def construct_title(self) -> str:

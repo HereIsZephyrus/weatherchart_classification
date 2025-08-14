@@ -157,6 +157,9 @@ class ChartEnhancer:
         """
         add the chart title to the chart to simulate different charts
         """
+        if chart.metadata.zh_name is None:
+            return chart
+
         title_str = chart.construct_title()
         draw = ImageDraw.Draw(chart.image)
 

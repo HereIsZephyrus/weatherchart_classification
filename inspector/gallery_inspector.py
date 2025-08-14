@@ -18,6 +18,8 @@ import logging
 from dataclasses import dataclass, field
 from html import escape
 from typing import Dict, List, Optional, Set, Tuple
+import pandas as pd
+from ..constants import GALLERY_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +233,19 @@ class GalleryInspector:
             # Log a few invalid filenames for diagnostics
             preview = stats.invalid_files[:min(5, len(stats.invalid_files))]
             logger.warning("Invalid filename examples: %s", "; ".join(preview))
+
+    def count_frequency(self) -> None:
+        """
+        Count the frequency of each kind
+        """
+        frequency : Dict[str, int] = {}
+        for kinds, kind_stats in self.stats.kinds.items():
+            kind_list = kinds.split("A")
+            for kind in kind_list:
+                frequency[kind] = frequency.get(kind, 0) + kind_stats.image_count
+        df = pd.DataFrame(frequency.items(), columns=["kind", "frequency"])
+        df.to_csv(os.path.join(GALLERY_DIR, "frequency.csv"), index=False)
+        logger.info("Frequency counted")
 
     def to_html(self, examples_per_kind: int = 3) -> str:
         """

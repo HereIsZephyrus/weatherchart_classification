@@ -27,6 +27,7 @@ def inspect_gallery(save_html: bool = True):
     gallery_inspector = GalleryInspector(base_dir=GALLERY_DIR)
     gallery_inspector.inspect()
     logger.info("Inspected the ECMWF gallery")
+    gallery_inspector.count_frequency()
     gallery_inspector.info()
     if save_html:
         out = os.path.abspath(os.path.join("reports", "gallery_report.html"))

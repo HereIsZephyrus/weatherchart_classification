@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import List, Dict, Any
 from enum import Enum
 from pydantic import BaseModel
+import pandas as pd
 from .chart import Chart, ChartMetadata
 from .chart_enhancer import ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
 from ..constants import DATASET_DIR, GALLERY_DIR, RADAR_DIR
@@ -72,7 +73,7 @@ class DataBatchBuilder:
         image_files = [str(f) for f in folder.glob("*.webp")]
         if not image_files:
             return []
-            
+
         # Bootstrapping
         sampled_images = random.choices(image_files, k=sample_num)
         logger.info("Bootstrap sampling generated %d samples from %s", len(sampled_images), folder_path)
@@ -115,19 +116,19 @@ class DataBatchBuilder:
         generate the radar data for a data batch
         """
         metadata_list : List[ChartMetadata] = []
-        
+
         # Get list of image files in the source directory
         source_path = Path(source_dir)
-        image_files = [str(f) for f in source_path.glob("*.png")]
-        if not image_files:
-            logger.warning("No image files found in %s", source_dir)
-            return metadata_list
-            
-        sampled_images = random.choices(image_files, k=sample_num)
-        for index, image_path in enumerate(sampled_images):
-            chart = self.enhancer(Chart(image_path, index=index))
-            chart.save(save_dir / f"{index:04d}.png")
+        labels_df = pd.read_csv(source_path / "labels.csv")
+        labels_df = labels_df.sample(n=sample_num)
+
+        for index, row in labels_df.iterrows():
+            image_path = source_path / f"{row['index']}.png"
+            save_index = self.metadata.size - index - 1
+            chart = self.enhancer(Chart(image_path, index=save_index, info=row.to_dict()))
+            chart.save(save_dir / f"{save_index:04d}.png")
             metadata_list.append(chart.metadata)
+
         return metadata_list
 
     def build(self) -> Dict[str, Any]:
@@ -155,14 +156,14 @@ class DataBatchBuilder:
             save_dir=images_dir
         )
 
-        #radar_num = self.metadata.size - len(sampled_images)
-        #radar_labels = self.sample_huggingface_dataset(
-        #    sample_num=radar_num,
-        #    save_dir=images_dir,
-        #    source_dir=RADAR_DIR
-        #)
+        radar_num = self.metadata.size - len(sampled_images)
+        radar_labels = self.sample_huggingface_dataset(
+            sample_num=radar_num,
+            save_dir=images_dir,
+            source_dir=RADAR_DIR
+        )
 
-        total_labels = ecmwf_labels# + radar_labels
+        total_labels = ecmwf_labels + radar_labels
         return total_labels
 
 class DatasetManager:

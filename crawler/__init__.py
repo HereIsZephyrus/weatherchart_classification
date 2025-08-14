@@ -6,6 +6,7 @@ from .gallery_selector import GallerySelector
 from .gallery_crawler import GalleryCrawler
 from .crawler import Crawler
 from .chart_crawler import ChartCrawler, download_gallery_task
+from .gallery_counter import reorganize_gallery
 
 __all__ = [
     'Crawler',
@@ -14,4 +15,5 @@ __all__ = [
     'GalleryCrawler',
     'ChartCrawler',
     'download_gallery_task',
+    'reorganize_gallery',
 ]

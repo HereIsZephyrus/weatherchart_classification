@@ -10,7 +10,7 @@ import os
 import logging
 import multiprocessing
 from typing import Dict, List
-from .crawler import download_gallery_task, Crawler
+from .crawler import download_gallery_task, Crawler, reorganize_gallery
 from .constants import GALLERY_DIR
 
 logging.basicConfig(
@@ -43,7 +43,7 @@ def craw_from_ecmwf():
         crawler.filter([param])
         gallery[param] = crawler.extract_chart_hrefs()
 
-    gallery = crawler.reorganize_gallery(gallery)
+    gallery = reorganize_gallery(gallery)
 
     os.makedirs(GALLERY_DIR, exist_ok=True)
 

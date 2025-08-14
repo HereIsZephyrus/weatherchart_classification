@@ -15,8 +15,8 @@ IMAGE_DIR = f'{INPUT_DIR}/extracted_images'
 LOGO_DIR = f'{TRAIN_DATA_DIR}/logo'
 IMAGE_SIZE = (480, 360)
 DATASET_DIR = f'{__package__}/dataset'
-BATCH_NUM = 10
-SINGLE_BATCH_SIZE = 500
+BATCH_NUM = 20
+SINGLE_BATCH_SIZE = 5000
 
 __all__ = [
     'TRAIN_DATA_DIR',

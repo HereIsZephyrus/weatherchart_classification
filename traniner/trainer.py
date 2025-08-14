@@ -3,21 +3,17 @@ Trainer class for CNN-RNN unified framework with two-stage training strategy.
 Based on the training strategy from docs/train.md section 3.2.
 """
 import torch
-import torch.nn as nn
-import torch.optim as optim
+from torch import optim
 from torch.utils.data import DataLoader
-from transformers import Trainer, TrainingArguments
-from typing import Dict, Optional, Tuple, Any, List, Union
+from typing import Dict, Optional, Any
 import logging
 import os
 import json
 import numpy as np
 from tqdm.auto import tqdm
-import wandb
-from sklearn.metrics import classification_report
 
-from .config import ExperimentConfig, TrainingConfig, ModelConfig
-from .model import WeatherChartModel, WeatherChartConfig
+from .config import ModelConfig
+from .model import WeatherChartModel
 from .utils import (
     LossCalculator, MetricsCalculator, TeacherForcingScheduler,
     LabelProcessor, set_seed
@@ -37,7 +33,7 @@ class WeatherChartTrainer:
 
     def __init__(
         self,
-        config: ExperimentConfig,
+        config: ModelConfig,
         model: WeatherChartModel,
         train_dataloader: DataLoader,
         eval_dataloader: Optional[DataLoader] = None,
@@ -89,10 +85,6 @@ class WeatherChartTrainer:
         # Output directories
         self.output_dir = config.output_dir
         os.makedirs(self.output_dir, exist_ok=True)
-
-        # Wandb setup
-        if config.use_wandb:
-            self._setup_wandb()
 
         logger.info("Initialized WeatherChartTrainer")
 
@@ -171,18 +163,6 @@ class WeatherChartTrainer:
 
         return schedulers
 
-    def _setup_wandb(self):
-        """Setup Weights & Biases logging."""
-        wandb.init(
-            project=self.config.wandb_project,
-            entity=self.config.wandb_entity,
-            name=self.config.experiment_name,
-            config=self.config.to_dict(),
-            tags=self.config.wandb_tags
-        )
-        wandb.watch(self.model, log="all", log_freq=100)
-        logger.info("Initialized Weights & Biases logging")
-
     def train(self):
         """Main training loop with two-stage strategy."""
         logger.info("Starting training...")
@@ -220,7 +200,7 @@ class WeatherChartTrainer:
                     if current_metric > self.best_metric:
                         self.best_metric = current_metric
                         self._save_model("best_model")
-                        logger.info(f"New best model saved with {self.config.training.metric_for_best_model}: {current_metric:.4f}")
+                        logger.info("New best model saved with %s: %.4f", self.config.training.metric_for_best_model, current_metric)
                 else:
                     eval_metrics = {}
 
@@ -243,13 +223,11 @@ class WeatherChartTrainer:
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
         except Exception as e:
-            logger.error(f"Training failed with error: {e}")
+            logger.error("Training failed with error: %s", e)
             raise
         finally:
             # Save final model
             self._save_model("final_model")
-            if self.config.use_wandb:
-                wandb.finish()
 
         logger.info("Training completed")
 
@@ -442,10 +420,6 @@ class WeatherChartTrainer:
                 log_str += f" | {key}: {value:.4f}"
         logger.info(log_str)
 
-        # Wandb logging
-        if self.config.use_wandb:
-            wandb.log(metrics, step=step)
-
     def _save_model(self, checkpoint_name: str):
         """Save model checkpoint."""
         checkpoint_dir = os.path.join(self.output_dir, checkpoint_name)
@@ -467,7 +441,7 @@ class WeatherChartTrainer:
         with open(os.path.join(checkpoint_dir, "training_state.json"), "w") as f:
             json.dump(training_state, f, indent=2)
 
-        logger.info(f"Saved checkpoint: {checkpoint_dir}")
+        logger.info("Saved checkpoint: %s", checkpoint_dir)
 
     def load_checkpoint(self, checkpoint_path: str):
         """Load model checkpoint."""
@@ -492,7 +466,7 @@ class WeatherChartTrainer:
                     training_state["optimizer_state"]
                 )
 
-        logger.info(f"Loaded checkpoint from: {checkpoint_path}")
+        logger.info("Loaded checkpoint from: %s", checkpoint_path)
 
     def predict(
         self, 

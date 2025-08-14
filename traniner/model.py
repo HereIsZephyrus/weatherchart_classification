@@ -10,63 +10,12 @@ import logging
 import torch
 from torch import nn
 import torch.nn.functional as F
-from typing import Tuple, Optional, Dict, Any, List
+from typing import Tuple, Optional, Dict
 from transformers import PreTrainedModel, PretrainedConfig
 from torchvision import models
-
 from .config import ModelConfig
 
 logger = logging.getLogger(__name__)
-
-
-class WeatherChartConfig(PretrainedConfig):
-    """
-    Configuration class for WeatherChartModel, compatible with Hugging Face.
-    """
-
-    model_type = "weather_chart_cnn_rnn"
-
-    def __init__(
-        self,
-        model_config: Optional[ModelConfig] = None,
-        **kwargs
-    ):
-        if model_config is None:
-            model_config = ModelConfig()
-
-        # CNN Configuration
-        self.cnn_backbone = model_config.cnn_backbone
-        self.cnn_pretrained = model_config.cnn_pretrained
-        self.cnn_feature_dim = model_config.cnn_feature_dim
-        self.cnn_dropout = model_config.cnn_dropout
-
-        # Feature Projection
-        self.joint_embedding_dim = model_config.joint_embedding_dim
-
-        # RNN Configuration
-        self.rnn_type = model_config.rnn_type
-        self.rnn_num_layers = model_config.rnn_num_layers
-        self.rnn_hidden_dim = model_config.rnn_hidden_dim
-        self.rnn_dropout = model_config.rnn_dropout
-        self.rnn_bidirectional = model_config.rnn_bidirectional
-
-        # Label Configuration
-        self.num_labels = model_config.num_labels
-        self.label_embedding_dim = model_config.label_embedding_dim
-        self.max_sequence_length = model_config.max_sequence_length
-
-        # Special tokens
-        self.bos_token_id = model_config.bos_token_id
-        self.eos_token_id = model_config.eos_token_id
-        self.pad_token_id = model_config.pad_token_id
-
-        # Beam Search
-        self.beam_width = model_config.beam_width
-        self.beam_max_length = model_config.beam_max_length
-        self.beam_early_stopping = model_config.beam_early_stopping
-
-        super().__init__(**kwargs)
-
 
 class CNNEncoder(nn.Module):
     """
@@ -74,27 +23,22 @@ class CNNEncoder(nn.Module):
     Outputs global features through Global Average Pooling.
     """
 
-    def __init__(self, config: WeatherChartConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
 
-        # Load pretrained ResNet-50
-        if config.cnn_backbone == "resnet50":
-            self.backbone = models.resnet50(pretrained=config.cnn_pretrained)
-            # Remove final classification layer
-            self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
-        else:
-            raise ValueError(f"Unsupported CNN backbone: {config.cnn_backbone}")
-
-        self.dropout = nn.Dropout(config.cnn_dropout)
+        self.backbone = models.resnet50(pretrained=True)
+        # Remove final classification layer
+        self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
+        self.dropout = nn.Dropout(config.cnn_config.cnn_dropout)
 
         # Feature projection to joint embedding space
         self.feature_projection = nn.Linear(
-            config.cnn_feature_dim, 
-            config.joint_embedding_dim
+            config.cnn_config.cnn_feature_dim, 
+            config.unified_config.joint_embedding_dim
         )
 
-        logger.info(f"Initialized CNN encoder with {config.cnn_backbone}")
+        logger.info("Initialized CNN encoder with %s", config.cnn_config.cnn_backbone)
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
@@ -122,19 +66,19 @@ class LabelEmbedding(nn.Module):
     Learnable label embedding matrix for weather elements.
     """
 
-    def __init__(self, config: WeatherChartConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
 
         # Label embedding matrix including special tokens
         # +3 for BOS, EOS, PAD tokens
-        vocab_size = config.num_labels + 3
-        self.embedding = nn.Embedding(vocab_size, config.label_embedding_dim)
+        vocab_size = config.label_config.num_labels + 3
+        self.embedding = nn.Embedding(vocab_size, config.label_config.label_embedding_dim)
 
         # Initialize embeddings
         nn.init.xavier_uniform_(self.embedding.weight)
 
-        logger.info(f"Initialized label embedding with vocab_size={vocab_size}")
+        logger.info("Initialized label embedding with vocab_size=%d", vocab_size)
 
     def forward(self, label_ids: torch.Tensor) -> torch.Tensor:
         """
@@ -155,27 +99,24 @@ class RNNDecoder(nn.Module):
     Implements joint feature fusion and attention mechanism.
     """
 
-    def __init__(self, config: WeatherChartConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
 
         # RNN layers
-        if config.rnn_type == "LSTM":
-            self.rnn = nn.LSTM(
-                input_size=config.label_embedding_dim,
-                hidden_size=config.rnn_hidden_dim,
-                num_layers=config.rnn_num_layers,
-                dropout=config.rnn_dropout if config.rnn_num_layers > 1 else 0,
-                bidirectional=config.rnn_bidirectional,
-                batch_first=True
-            )
-        else:
-            raise ValueError(f"Unsupported RNN type: {config.rnn_type}")
+        self.rnn = nn.LSTM(
+            input_size=config.label_config.label_embedding_dim,
+            hidden_size=config.rnn_config.rnn_hidden_dim,
+            num_layers=config.rnn_num_layers,
+            dropout=config.rnn_dropout if config.rnn_num_layers > 1 else 0,
+            bidirectional=config.rnn_bidirectional,
+            batch_first=True
+        )
 
         # Joint feature fusion layers
         self.feature_fusion = nn.Linear(
-            config.rnn_hidden_dim + config.joint_embedding_dim,
-            config.joint_embedding_dim
+            config.rnn_config.rnn_hidden_dim + config.unified_config.joint_embedding_dim,
+            config.unified_config.joint_embedding_dim
         )
 
         # Attention mechanism for coverage
@@ -186,10 +127,10 @@ class RNNDecoder(nn.Module):
             batch_first=True
         )
 
-        self.layer_norm = nn.LayerNorm(config.joint_embedding_dim)
+        self.layer_norm = nn.LayerNorm(config.unified_config.joint_embedding_dim)
         self.dropout = nn.Dropout(0.1)
 
-        logger.info(f"Initialized RNN decoder with {config.rnn_type}")
+        logger.info("Initialized RNN decoder with %s", config.rnn_config.rnn_type)
 
     def forward(
         self, 
@@ -251,20 +192,20 @@ class DualPredictionHead(nn.Module):
     - Parallel BCE head: Direct multi-hot vector prediction
     """
 
-    def __init__(self, config: WeatherChartConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
 
         # Sequential prediction head
         self.sequential_head = nn.Linear(
-            config.joint_embedding_dim, 
-            config.num_labels + 3  # +3 for special tokens
+            config.unified_config.joint_embedding_dim, 
+            config.label_config.num_labels + 3  # +3 for special tokens
         )
 
         # Parallel BCE prediction head
         self.parallel_head = nn.Linear(
-            config.joint_embedding_dim,
-            config.num_labels
+            config.unified_config.joint_embedding_dim,
+            config.label_config.num_labels
         )
 
         # Dropout for regularization
@@ -309,9 +250,9 @@ class WeatherChartModel(PreTrainedModel):
     prediction with label dependency modeling.
     """
 
-    config_class = WeatherChartConfig
+    config_class = ModelConfig
 
-    def __init__(self, config: WeatherChartConfig):
+    def __init__(self, config: ModelConfig):
         super().__init__(config)
         self.config = config
 
@@ -349,7 +290,6 @@ class WeatherChartModel(PreTrainedModel):
         images: torch.Tensor,
         input_labels: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        return_dict: bool = True,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
         """

@@ -3,6 +3,8 @@ Configuration classes for the CNN-RNN unified framework training.
 """
 from typing import ClassVar
 import logging
+import json
+from transformers import PretrainedConfig
 from pydantic import BaseModel
 from inspector.dataset_maker import DatasetConfig
 from ..constants import BATCH_NUM, SINGLE_BATCH_SIZE
@@ -216,11 +218,14 @@ class Hyperparameter(BaseModel):
     early_stopping_patience: int
     early_stopping_threshold: float
 
-class ModelConfig:
+class ModelConfig(PretrainedConfig):
     """
-    Model configuration class
+    Model configuration class, compatible with Hugging Face.
     """
-    def __init__(self,parameter: Hyperparameter):
+
+    model_type = "weather_chart_cnn_rnn"
+
+    def __init__(self,parameter: Hyperparameter, **kwargs):
         self.cnn_config = CNNconfig(
             cnn_dropout=parameter.cnn_dropout
         )
@@ -260,15 +265,10 @@ class ModelConfig:
             coverage_loss_weight=parameter.coverage_loss_weight
         )
         self.validation_config = ValidationConfig(
-            eval_steps=parameter.eval_steps,
-            save_steps=parameter.save_steps,
-            save_total_limit=parameter.save_total_limit,
-            metric_for_best_model=parameter.metric_for_best_model,
-            greater_is_better=parameter.greater_is_better,
-            early_stopping=parameter.early_stopping,
             early_stopping_patience=parameter.early_stopping_patience,
             early_stopping_threshold=parameter.early_stopping_threshold
         )
+        super().__init__(**kwargs)
 
     def get_learning_rate_for_stage(self, stage: str, component: str) -> float:
         """
@@ -292,6 +292,25 @@ class ModelConfig:
                 raise ValueError(f"Unknown component: {component}")
         else:
             raise ValueError(f"Unknown stage: {stage}")
+
+    def print_config(self):
+        """
+        Print the configuration
+        """
+        total_config = {
+            "cnn_config": self.cnn_config.model_dump(),
+            "rnn_config": self.rnn_config.model_dump(),
+            "unified_config": self.unified_config.model_dump(),
+            "token_config": self.token_config.model_dump(),
+            "label_config": self.label_config.model_dump(),
+            "basic_learning_config": self.basic_config.model_dump(),
+            "learning_strategy_config": self.learning_strategy_config.model_dump(),
+            "optimizer_config": self.optimizer_config.model_dump(),
+            "loss_weight_config": self.loss_weight_config.model_dump(),
+            "validation_config": self.validation_config.model_dump()
+        }
+        with open("config.json", "w", encoding="utf-8") as f:
+            json.dump(total_config, f, indent=2)
 
 default_hyperparameter = Hyperparameter(
     # CNN Parameters

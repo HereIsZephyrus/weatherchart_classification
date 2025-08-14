@@ -2,77 +2,18 @@
 Utility functions for the CNN-RNN unified framework training.
 Includes data preprocessing, sequence processing, metrics calculation, etc.
 """
+import logging
+import json
+import random
+from typing import List, Dict, Tuple, Optional, Any
+from collections import defaultdict
 import torch
 import torch.nn.functional as F
 import numpy as np
-from typing import List, Dict, Tuple, Optional, Union, Any
-from PIL import Image
-import torchvision.transforms as transforms
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, multilabel_confusion_matrix
-import logging
-import json
-import os
-from collections import defaultdict, Counter
-import random
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from .config import TokenConfig
 
 logger = logging.getLogger(__name__)
-
-
-class ImageTransforms:
-    """
-    Image preprocessing and data augmentation transforms.
-    Following ImageNet preprocessing standards for ResNet.
-    """
-
-    def __init__(
-        self,
-        image_size: Tuple[int, int] = (224, 224),
-        mean: List[float] = [0.485, 0.456, 0.406],
-        std: List[float] = [0.229, 0.224, 0.225],
-        use_augmentation: bool = True
-    ):
-        self.image_size = image_size
-        self.mean = mean
-        self.std = std
-        self.use_augmentation = use_augmentation
-
-        # Base transforms
-        self.base_transforms = [
-            transforms.Resize(image_size),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=mean, std=std)
-        ]
-
-        # Augmentation transforms
-        self.augmentation_transforms = [
-            transforms.ColorJitter(
-                brightness=0.1,
-                contrast=0.1,
-                saturation=0.1,
-                hue=0.05
-            ),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomRotation(degrees=10),
-        ]
-
-    def get_train_transforms(self) -> transforms.Compose:
-        """Get training transforms with augmentation."""
-        if self.use_augmentation:
-            all_transforms = [
-                transforms.Resize(self.image_size),
-                *self.augmentation_transforms,
-                transforms.ToTensor(),
-                transforms.Normalize(mean=self.mean, std=self.std)
-            ]
-        else:
-            all_transforms = self.base_transforms
-
-        return transforms.Compose(all_transforms)
-
-    def get_eval_transforms(self) -> transforms.Compose:
-        """Get evaluation transforms without augmentation."""
-        return transforms.Compose(self.base_transforms)
-
 
 class LabelProcessor:
     """
@@ -82,20 +23,14 @@ class LabelProcessor:
     def __init__(
         self,
         label_mapping: Dict[str, int],
-        bos_token_id: int = 0,
-        eos_token_id: int = 1,
-        pad_token_id: int = 2,
-        max_sequence_length: int = 10
+        token_config: TokenConfig,
     ):
         self.label_mapping = label_mapping
         self.reverse_mapping = {v: k for k, v in label_mapping.items()}
-        self.bos_token_id = bos_token_id
-        self.eos_token_id = eos_token_id
-        self.pad_token_id = pad_token_id
-        self.max_sequence_length = max_sequence_length
+        self.token_config = token_config
         self.num_labels = len(label_mapping)
 
-        logger.info(f"Initialized LabelProcessor with {self.num_labels} labels")
+        logger.info("Initialized LabelProcessor with %d labels", self.num_labels)
 
     def encode_labels(self, label_names: List[str]) -> List[int]:
         """
@@ -113,7 +48,7 @@ class LabelProcessor:
                 # Add 3 to account for special tokens (BOS, EOS, PAD)
                 label_ids.append(self.label_mapping[name] + 3)
             else:
-                logger.warning(f"Unknown label: {name}")
+                logger.warning("Unknown label: %s", name)
         return label_ids
 
     def decode_labels(self, label_ids: List[int]) -> List[str]:
@@ -129,7 +64,7 @@ class LabelProcessor:
         label_names = []
         for label_id in label_ids:
             # Skip special tokens
-            if label_id in [self.bos_token_id, self.eos_token_id, self.pad_token_id]:
+            if label_id in [self.token_config.bos_token_id, self.token_config.eos_token_id, self.token_config.pad_token_id]:
                 continue
 
             # Convert back to original label space
@@ -137,7 +72,7 @@ class LabelProcessor:
             if original_id in self.reverse_mapping:
                 label_names.append(self.reverse_mapping[original_id])
             else:
-                logger.warning(f"Unknown label ID: {label_id}")
+                logger.warning("Unknown label ID: %d", label_id)
 
         return label_names
 
@@ -175,11 +110,11 @@ class LabelProcessor:
         # "fixed" order keeps original order
 
         # Create sequence: [BOS, label1, label2, ..., EOS]
-        sequence = [self.bos_token_id] + label_ids + [self.eos_token_id]
+        sequence = [self.token_config.bos_token_id] + label_ids + [self.token_config.eos_token_id]
 
         # Truncate if too long
-        if len(sequence) > self.max_sequence_length:
-            sequence = sequence[:self.max_sequence_length-1] + [self.eos_token_id]
+        if len(sequence) > self.token_config.max_sequence_length:
+            sequence = sequence[:self.token_config.max_sequence_length-1] + [self.token_config.eos_token_id]
 
         return torch.tensor(sequence, dtype=torch.long)
 
@@ -246,7 +181,7 @@ class LabelProcessor:
                 # Pad with PAD token
                 padding = torch.full(
                     (max_length - seq_len,), 
-                    self.pad_token_id, 
+                    self.token_config.pad_token_id, 
                     dtype=torch.long
                 )
                 padded_seq = torch.cat([seq, padding])
@@ -389,8 +324,7 @@ class LossCalculator:
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
 
-        logger.info(f"Initialized loss calculator with weights: BCE={bce_weight}, "
-                   f"Seq={sequence_weight}, Coverage={coverage_weight}")
+        logger.info("Initialized loss calculator with weights: BCE=%f, Seq=%f, Coverage=%f", bce_weight, sequence_weight, coverage_weight)
 
     def focal_loss(
         self,
@@ -540,7 +474,7 @@ class TeacherForcingScheduler:
         self.total_steps = total_steps
         self.schedule_type = schedule_type
 
-        logger.info(f"Initialized teacher forcing scheduler: {start_ratio} -> {end_ratio}")
+        logger.info("Initialized teacher forcing scheduler: %f -> %f", start_ratio, end_ratio)
 
     def get_ratio(self, current_step: int) -> float:
         """
@@ -578,7 +512,7 @@ def set_seed(seed: int):
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
-    logger.info(f"Set random seed to {seed}")
+    logger.info("Set random seed to %d", seed)
 
 
 def load_label_mapping(mapping_path: str) -> Dict[str, int]:
@@ -594,10 +528,10 @@ def load_label_mapping(mapping_path: str) -> Dict[str, int]:
     try:
         with open(mapping_path, 'r', encoding='utf-8') as f:
             mapping = json.load(f)
-        logger.info(f"Loaded label mapping with {len(mapping)} labels from {mapping_path}")
+        logger.info("Loaded label mapping with %d labels from %s", len(mapping), mapping_path)
         return mapping
     except Exception as e:
-        logger.error(f"Failed to load label mapping from {mapping_path}: {e}")
+        logger.error("Failed to load label mapping from %s: %s", mapping_path, e)
         raise
 
 
@@ -624,9 +558,9 @@ def save_predictions(
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(serializable_predictions, f, indent=2, ensure_ascii=False)
 
-        logger.info(f"Saved predictions to {output_path}")
+        logger.info("Saved predictions to %s", output_path)
     except Exception as e:
-        logger.error(f"Failed to save predictions to {output_path}: {e}")
+        logger.error("Failed to save predictions to %s: %s", output_path, e)
         raise
 
 
@@ -652,5 +586,5 @@ def create_label_frequency_stats(
     #     for label in sample.labels:
     #         frequencies[label] += 1
 
-    logger.info(f"Calculated label frequencies for {len(frequencies)} labels")
+    logger.info("Calculated label frequencies for %d labels", len(frequencies))
     return dict(frequencies)

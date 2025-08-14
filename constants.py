@@ -14,6 +14,8 @@ IMAGE_DIR = f'{INPUT_DIR}/extracted_images'
 LOGO_DIR = f'{TRAIN_DATA_DIR}/logo'
 IMAGE_SIZE = (480, 360)
 DATASET_DIR = f'{__package__}/dataset'
+BATCH_NUM = 10
+SINGLE_BATCH_SIZE = 4000
 
 __all__ = [
     'TRAIN_DATA_DIR',
@@ -28,4 +30,6 @@ __all__ = [
     'LOGO_DIR',
     'IMAGE_SIZE',
     'DATASET_DIR',
+    'BATCH_NUM',
+    'SINGLE_BATCH_SIZE',
 ]

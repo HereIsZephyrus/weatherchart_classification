@@ -139,6 +139,9 @@ class ChartEnhancer:
         if logo.mode != 'RGBA':
             logo = logo.convert('RGBA')
 
+        # Resize logo to 1/2 of the image size
+        logo = logo.resize((chart.image.width // 2, chart.image.height // 2))
+
         corner_index = random.randint(0, 3) # stand for top-left, top-right, bottom-left, bottom-right
         if corner_index == 0:
             chart.image.paste(logo, (0, 0))
@@ -205,13 +208,13 @@ class ChartEnhancer:
             chart = self.clip_chart_area(chart)
             logger.debug("Applied clipping")
 
+        # First adjust the size to ensure consistent dimensions
+        chart = self.adjust_size(chart)
+
         # Add logo watermark
         if random.random() < self.config.add_logo_prob:
             chart = self.add_logo_watermark(chart)
             logger.debug("Added logo")
-
-        # First adjust the size to ensure consistent dimensions
-        chart = self.adjust_size(chart)
 
         # Convert to RGBA mode for operations that need alpha channel
         if chart.image.mode != 'RGBA':

@@ -42,8 +42,7 @@ class RadarDatasetParser:
             logger.info("loading dataset: %s", dataset_path)
             self.dataset = load_dataset(
                 "deepguess/weather-analysis-dataset",
-                cache_dir=os.path.abspath(dataset_path),
-                download_mode="reuse_cache_if_exists",
+                cache_dir=os.path.abspath(dataset_path)
             )
             logger.info("dataset loaded successfully, %d samples", len(self.dataset))
             return True

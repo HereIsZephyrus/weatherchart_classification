@@ -6,7 +6,7 @@ import json
 import random
 import logging
 from pathlib import Path
-from typing import List
+from typing import List, Dict, Any
 from enum import Enum
 from pydantic import BaseModel
 from .chart import Chart, ChartMetadata
@@ -130,7 +130,7 @@ class DataBatchBuilder:
             metadata_list.append(chart.metadata)
         return metadata_list
 
-    def build(self) -> None:
+    def build(self) -> Dict[str, Any]:
         """
         main function to build a data batch
         """
@@ -138,9 +138,7 @@ class DataBatchBuilder:
         batch_dir.mkdir(parents=True, exist_ok=True)
 
         images_dir = batch_dir / "images"
-        labels_dir = batch_dir / "labels"
         images_dir.mkdir(exist_ok=True)
-        labels_dir.mkdir(exist_ok=True)
 
         types = self.select_type()
         image_num_each_type = int(self.metadata.size / (len(types) + 1)) # consider radar data
@@ -165,10 +163,7 @@ class DataBatchBuilder:
         #)
 
         total_labels = ecmwf_labels# + radar_labels
-        with open(labels_dir / "labels.json", "w", encoding="utf-8") as f:
-            json.dump(total_labels, f, ensure_ascii=False, indent=2)
-
-        logger.info("Start generating batch data %s", self.metadata.batch_id)
+        return total_labels
 
 class DatasetManager:
     """
@@ -276,7 +271,12 @@ class DatasetManager:
                 metadata=metadata,
                 enhancer_config=preset_values[enhancer_config_index]
             )
-            builder.build()
+            total_labels = builder.build()
+            with open(builder.metadata.path / "labels.json", "w", encoding="utf-8") as f:
+                json.dump(total_labels, f, ensure_ascii=False, indent=2)
+            with open(builder.metadata.path / "config.json", "w", encoding="utf-8") as f:
+                json.dump(builder.enhancer.config.model_dump(), f, ensure_ascii=False, indent=2)
+
             logger.info("Built batch %s", metadata.name)
 
         logger.info("All batches built")

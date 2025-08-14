@@ -8,7 +8,7 @@ import random
 import logging
 import ast
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, ClassVar
 from enum import Enum
 from pydantic import BaseModel
 import pandas as pd
@@ -54,9 +54,9 @@ class DatasetConfig(BaseModel):
     """
     batch_num: int
     single_batch_size: int
-    train_percent : float = 0.7
-    validation_percent : float = 0.1
-    test_percent : float = 0.2
+    train_percent : ClassVar[float] = 0.7
+    validation_percent : ClassVar[float] = 0.1
+    test_percent : ClassVar[float] = 0.2
 
 class DataBatchBuilder:
     """

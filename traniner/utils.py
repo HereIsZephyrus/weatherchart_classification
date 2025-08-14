@@ -1,0 +1,656 @@
+"""
+Utility functions for the CNN-RNN unified framework training.
+Includes data preprocessing, sequence processing, metrics calculation, etc.
+"""
+import torch
+import torch.nn.functional as F
+import numpy as np
+from typing import List, Dict, Tuple, Optional, Union, Any
+from PIL import Image
+import torchvision.transforms as transforms
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, multilabel_confusion_matrix
+import logging
+import json
+import os
+from collections import defaultdict, Counter
+import random
+
+logger = logging.getLogger(__name__)
+
+
+class ImageTransforms:
+    """
+    Image preprocessing and data augmentation transforms.
+    Following ImageNet preprocessing standards for ResNet.
+    """
+
+    def __init__(
+        self,
+        image_size: Tuple[int, int] = (224, 224),
+        mean: List[float] = [0.485, 0.456, 0.406],
+        std: List[float] = [0.229, 0.224, 0.225],
+        use_augmentation: bool = True
+    ):
+        self.image_size = image_size
+        self.mean = mean
+        self.std = std
+        self.use_augmentation = use_augmentation
+
+        # Base transforms
+        self.base_transforms = [
+            transforms.Resize(image_size),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=mean, std=std)
+        ]
+
+        # Augmentation transforms
+        self.augmentation_transforms = [
+            transforms.ColorJitter(
+                brightness=0.1,
+                contrast=0.1,
+                saturation=0.1,
+                hue=0.05
+            ),
+            transforms.RandomHorizontalFlip(p=0.5),
+            transforms.RandomRotation(degrees=10),
+        ]
+
+    def get_train_transforms(self) -> transforms.Compose:
+        """Get training transforms with augmentation."""
+        if self.use_augmentation:
+            all_transforms = [
+                transforms.Resize(self.image_size),
+                *self.augmentation_transforms,
+                transforms.ToTensor(),
+                transforms.Normalize(mean=self.mean, std=self.std)
+            ]
+        else:
+            all_transforms = self.base_transforms
+
+        return transforms.Compose(all_transforms)
+
+    def get_eval_transforms(self) -> transforms.Compose:
+        """Get evaluation transforms without augmentation."""
+        return transforms.Compose(self.base_transforms)
+
+
+class LabelProcessor:
+    """
+    Label processing utilities for sequence generation and multi-label handling.
+    """
+
+    def __init__(
+        self,
+        label_mapping: Dict[str, int],
+        bos_token_id: int = 0,
+        eos_token_id: int = 1,
+        pad_token_id: int = 2,
+        max_sequence_length: int = 10
+    ):
+        self.label_mapping = label_mapping
+        self.reverse_mapping = {v: k for k, v in label_mapping.items()}
+        self.bos_token_id = bos_token_id
+        self.eos_token_id = eos_token_id
+        self.pad_token_id = pad_token_id
+        self.max_sequence_length = max_sequence_length
+        self.num_labels = len(label_mapping)
+
+        logger.info(f"Initialized LabelProcessor with {self.num_labels} labels")
+
+    def encode_labels(self, label_names: List[str]) -> List[int]:
+        """
+        Convert label names to IDs.
+
+        Args:
+            label_names: List of label names
+
+        Returns:
+            List of label IDs
+        """
+        label_ids = []
+        for name in label_names:
+            if name in self.label_mapping:
+                # Add 3 to account for special tokens (BOS, EOS, PAD)
+                label_ids.append(self.label_mapping[name] + 3)
+            else:
+                logger.warning(f"Unknown label: {name}")
+        return label_ids
+
+    def decode_labels(self, label_ids: List[int]) -> List[str]:
+        """
+        Convert label IDs back to names.
+
+        Args:
+            label_ids: List of label IDs
+
+        Returns:
+            List of label names
+        """
+        label_names = []
+        for label_id in label_ids:
+            # Skip special tokens
+            if label_id in [self.bos_token_id, self.eos_token_id, self.pad_token_id]:
+                continue
+
+            # Convert back to original label space
+            original_id = label_id - 3
+            if original_id in self.reverse_mapping:
+                label_names.append(self.reverse_mapping[original_id])
+            else:
+                logger.warning(f"Unknown label ID: {label_id}")
+
+        return label_names
+
+    def create_sequence(
+        self,
+        label_names: List[str],
+        order_strategy: str = "frequency",
+        label_frequencies: Optional[Dict[str, int]] = None
+    ) -> torch.Tensor:
+        """
+        Create input sequence for training with BOS/EOS tokens.
+
+        Args:
+            label_names: List of label names
+            order_strategy: How to order labels ("frequency", "random", "fixed")
+            label_frequencies: Label frequency statistics for ordering
+
+        Returns:
+            Input sequence tensor
+        """
+        # Encode labels
+        label_ids = self.encode_labels(label_names)
+
+        # Order labels based on strategy
+        if order_strategy == "frequency" and label_frequencies:
+            # Sort by frequency (high to low)
+            label_ids.sort(
+                key=lambda x: label_frequencies.get(
+                    self.reverse_mapping.get(x - 3, ""), 0
+                ),
+                reverse=True
+            )
+        elif order_strategy == "random":
+            random.shuffle(label_ids)
+        # "fixed" order keeps original order
+
+        # Create sequence: [BOS, label1, label2, ..., EOS]
+        sequence = [self.bos_token_id] + label_ids + [self.eos_token_id]
+
+        # Truncate if too long
+        if len(sequence) > self.max_sequence_length:
+            sequence = sequence[:self.max_sequence_length-1] + [self.eos_token_id]
+
+        return torch.tensor(sequence, dtype=torch.long)
+
+    def create_target_sequence(self, input_sequence: torch.Tensor) -> torch.Tensor:
+        """
+        Create target sequence for teacher forcing (input shifted by 1).
+
+        Args:
+            input_sequence: Input sequence with BOS token
+
+        Returns:
+            Target sequence for loss calculation
+        """
+        # Target is input sequence shifted by 1 (remove BOS, keep EOS)
+        return input_sequence[1:]
+
+    def create_multi_hot_vector(self, label_names: List[str]) -> torch.Tensor:
+        """
+        Create multi-hot vector for parallel BCE loss.
+
+        Args:
+            label_names: List of label names
+
+        Returns:
+            Multi-hot vector tensor
+        """
+        multi_hot = torch.zeros(self.num_labels, dtype=torch.float)
+
+        for name in label_names:
+            if name in self.label_mapping:
+                multi_hot[self.label_mapping[name]] = 1.0
+
+        return multi_hot
+
+    def pad_sequences(
+        self, 
+        sequences: List[torch.Tensor],
+        max_length: Optional[int] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Pad sequences to same length and create attention mask.
+
+        Args:
+            sequences: List of sequence tensors
+            max_length: Maximum length (if None, use longest sequence)
+
+        Returns:
+            Padded sequences and attention mask
+        """
+        if max_length is None:
+            max_length = max(len(seq) for seq in sequences)
+
+        padded_sequences = []
+        attention_masks = []
+
+        for seq in sequences:
+            seq_len = len(seq)
+
+            if seq_len >= max_length:
+                # Truncate if necessary
+                padded_seq = seq[:max_length]
+                mask = torch.ones(max_length, dtype=torch.bool)
+            else:
+                # Pad with PAD token
+                padding = torch.full(
+                    (max_length - seq_len,), 
+                    self.pad_token_id, 
+                    dtype=torch.long
+                )
+                padded_seq = torch.cat([seq, padding])
+                mask = torch.cat([
+                    torch.ones(seq_len, dtype=torch.bool),
+                    torch.zeros(max_length - seq_len, dtype=torch.bool)
+                ])
+
+            padded_sequences.append(padded_seq)
+            attention_masks.append(mask)
+
+        return torch.stack(padded_sequences), torch.stack(attention_masks)
+
+
+class MetricsCalculator:
+    """
+    Calculate various metrics for multi-label classification.
+    """
+
+    def __init__(self, label_names: List[str]):
+        self.label_names = label_names
+        self.num_labels = len(label_names)
+
+    def calculate_multilabel_metrics(
+        self,
+        y_true: np.ndarray,
+        y_pred: np.ndarray,
+        threshold: float = 0.5
+    ) -> Dict[str, float]:
+        """
+        Calculate comprehensive multi-label classification metrics.
+
+        Args:
+            y_true: True labels [batch_size, num_labels]
+            y_pred: Predicted probabilities [batch_size, num_labels]
+            threshold: Classification threshold
+
+        Returns:
+            Dictionary of metrics
+        """
+        # Convert predictions to binary
+        y_pred_binary = (y_pred > threshold).astype(int)
+
+        # Calculate metrics
+        metrics = {}
+
+        # Overall metrics
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            y_true, y_pred_binary, average='macro', zero_division=0
+        )
+        metrics.update({
+            "precision_macro": precision,
+            "recall_macro": recall,
+            "f1_macro": f1
+        })
+
+        precision, recall, f1, _ = precision_recall_fscore_support(
+            y_true, y_pred_binary, average='micro', zero_division=0
+        )
+        metrics.update({
+            "precision_micro": precision,
+            "recall_micro": recall,
+            "f1_micro": f1
+        })
+
+        # Subset accuracy (exact match)
+        subset_accuracy = accuracy_score(y_true, y_pred_binary)
+        metrics["subset_accuracy"] = subset_accuracy
+
+        # Hamming loss
+        hamming_loss = np.mean(y_true != y_pred_binary)
+        metrics["hamming_loss"] = hamming_loss
+
+        # Per-label metrics
+        for i, label_name in enumerate(self.label_names):
+            precision, recall, f1, _ = precision_recall_fscore_support(
+                y_true[:, i], y_pred_binary[:, i], average='binary', zero_division=0
+            )
+            metrics[f"{label_name}_precision"] = precision
+            metrics[f"{label_name}_recall"] = recall
+            metrics[f"{label_name}_f1"] = f1
+
+        return metrics
+
+    def calculate_sequence_metrics(
+        self,
+        y_true_sequences: List[List[int]],
+        y_pred_sequences: List[List[int]]
+    ) -> Dict[str, float]:
+        """
+        Calculate sequence-specific metrics.
+
+        Args:
+            y_true_sequences: True label sequences
+            y_pred_sequences: Predicted label sequences
+
+        Returns:
+            Dictionary of sequence metrics
+        """
+        metrics = {}
+
+        # Exact sequence match
+        exact_matches = sum(
+            true_seq == pred_seq 
+            for true_seq, pred_seq in zip(y_true_sequences, y_pred_sequences)
+        )
+        metrics["sequence_accuracy"] = exact_matches / len(y_true_sequences)
+
+        # Average sequence length
+        true_lengths = [len(seq) for seq in y_true_sequences]
+        pred_lengths = [len(seq) for seq in y_pred_sequences]
+        metrics["avg_true_length"] = np.mean(true_lengths)
+        metrics["avg_pred_length"] = np.mean(pred_lengths)
+
+        # Length difference
+        length_diffs = [abs(len(t) - len(p)) for t, p in zip(y_true_sequences, y_pred_sequences)]
+        metrics["avg_length_diff"] = np.mean(length_diffs)
+
+        return metrics
+
+
+class LossCalculator:
+    """
+    Calculate the multi-task loss combining BCE, sequence, and coverage components.
+    """
+
+    def __init__(
+        self,
+        bce_weight: float = 1.0,
+        sequence_weight: float = 0.5,
+        coverage_weight: float = 0.1,
+        use_focal_loss: bool = True,
+        focal_alpha: float = 0.25,
+        focal_gamma: float = 2.0
+    ):
+        self.bce_weight = bce_weight
+        self.sequence_weight = sequence_weight
+        self.coverage_weight = coverage_weight
+        self.use_focal_loss = use_focal_loss
+        self.focal_alpha = focal_alpha
+        self.focal_gamma = focal_gamma
+
+        logger.info(f"Initialized loss calculator with weights: BCE={bce_weight}, "
+                   f"Seq={sequence_weight}, Coverage={coverage_weight}")
+
+    def focal_loss(
+        self,
+        inputs: torch.Tensor,
+        targets: torch.Tensor,
+        alpha: float = 0.25,
+        gamma: float = 2.0
+    ) -> torch.Tensor:
+        """
+        Calculate focal loss for addressing class imbalance.
+
+        Args:
+            inputs: Predicted logits
+            targets: Target labels
+            alpha: Weighting factor for rare class
+            gamma: Focusing parameter
+
+        Returns:
+            Focal loss value
+        """
+        ce_loss = F.cross_entropy(inputs, targets, reduction='none')
+        pt = torch.exp(-ce_loss)
+        focal_loss = alpha * (1 - pt) ** gamma * ce_loss
+        return focal_loss.mean()
+
+    def coverage_loss(
+        self,
+        attention_weights: torch.Tensor,
+        sequence_mask: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Calculate coverage loss to prevent repetitive attention.
+
+        Args:
+            attention_weights: Attention weights [batch_size, seq_len, seq_len]
+            sequence_mask: Sequence mask [batch_size, seq_len]
+
+        Returns:
+            Coverage loss value
+        """
+        # Sum attention weights over time steps
+        coverage = attention_weights.sum(dim=1)  # [batch_size, seq_len]
+
+        # Penalize when coverage exceeds 1.0
+        penalty = torch.clamp(coverage - 1.0, min=0.0)
+
+        # Apply sequence mask to ignore padding
+        if sequence_mask is not None:
+            penalty = penalty * sequence_mask.float()
+            return penalty.sum() / sequence_mask.sum()
+        else:
+            return penalty.mean()
+
+    def calculate_loss(
+        self,
+        sequential_logits: torch.Tensor,
+        parallel_logits: torch.Tensor,
+        target_sequence: torch.Tensor,
+        target_labels: torch.Tensor,
+        attention_weights: Optional[torch.Tensor] = None,
+        sequence_mask: Optional[torch.Tensor] = None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Calculate multi-task loss.
+
+        Args:
+            sequential_logits: Sequential prediction logits [batch_size, seq_len, vocab_size]
+            parallel_logits: Parallel prediction logits [batch_size, num_labels]
+            target_sequence: Target sequence [batch_size, seq_len]
+            target_labels: Target multi-hot labels [batch_size, num_labels]
+            attention_weights: Attention weights for coverage loss
+            sequence_mask: Sequence mask for padding
+
+        Returns:
+            Dictionary containing individual and total losses
+        """
+        losses = {}
+
+        # 1. Parallel BCE Loss
+        if self.use_focal_loss:
+            # Apply focal loss to parallel predictions
+            bce_loss = F.binary_cross_entropy_with_logits(
+                parallel_logits, target_labels, reduction='none'
+            )
+            pt = torch.sigmoid(parallel_logits)
+            pt = torch.where(target_labels == 1, pt, 1 - pt)
+            focal_weight = self.focal_alpha * (1 - pt) ** self.focal_gamma
+            bce_loss = (focal_weight * bce_loss).mean()
+        else:
+            bce_loss = F.binary_cross_entropy_with_logits(
+                parallel_logits, target_labels
+            )
+        losses["bce_loss"] = bce_loss
+
+        # 2. Sequential Cross-Entropy Loss
+        batch_size, seq_len, vocab_size = sequential_logits.shape
+        sequential_logits_flat = sequential_logits.view(-1, vocab_size)
+        target_sequence_flat = target_sequence.view(-1)
+
+        if self.use_focal_loss:
+            sequence_loss = self.focal_loss(
+                sequential_logits_flat, 
+                target_sequence_flat,
+                self.focal_alpha,
+                self.focal_gamma
+            )
+        else:
+            sequence_loss = F.cross_entropy(
+                sequential_logits_flat, 
+                target_sequence_flat,
+                ignore_index=-100  # Ignore padding tokens if using -100
+            )
+        losses["sequence_loss"] = sequence_loss
+
+        # 3. Coverage Loss
+        if attention_weights is not None and self.coverage_weight > 0:
+            coverage_loss = self.coverage_loss(attention_weights, sequence_mask)
+            losses["coverage_loss"] = coverage_loss
+        else:
+            losses["coverage_loss"] = torch.tensor(0.0, device=parallel_logits.device)
+
+        # 4. Total Loss
+        total_loss = (
+            self.bce_weight * losses["bce_loss"] +
+            self.sequence_weight * losses["sequence_loss"] +
+            self.coverage_weight * losses["coverage_loss"]
+        )
+        losses["total_loss"] = total_loss
+
+        return losses
+
+
+class TeacherForcingScheduler:
+    """
+    Scheduler for teacher forcing ratio during training.
+    """
+
+    def __init__(
+        self,
+        start_ratio: float = 1.0,
+        end_ratio: float = 0.7,
+        total_steps: int = 10000,
+        schedule_type: str = "linear"
+    ):
+        self.start_ratio = start_ratio
+        self.end_ratio = end_ratio
+        self.total_steps = total_steps
+        self.schedule_type = schedule_type
+
+        logger.info(f"Initialized teacher forcing scheduler: {start_ratio} -> {end_ratio}")
+
+    def get_ratio(self, current_step: int) -> float:
+        """
+        Get teacher forcing ratio for current step.
+
+        Args:
+            current_step: Current training step
+
+        Returns:
+            Teacher forcing ratio
+        """
+        if current_step >= self.total_steps:
+            return self.end_ratio
+
+        progress = current_step / self.total_steps
+
+        if self.schedule_type == "linear":
+            ratio = self.start_ratio - (self.start_ratio - self.end_ratio) * progress
+        elif self.schedule_type == "exponential":
+            ratio = self.end_ratio + (self.start_ratio - self.end_ratio) * (0.5 ** progress)
+        else:
+            raise ValueError(f"Unknown schedule type: {self.schedule_type}")
+
+        return ratio
+
+
+def set_seed(seed: int):
+    """Set random seeds for reproducibility."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+    # For deterministic behavior (may impact performance)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    logger.info(f"Set random seed to {seed}")
+
+
+def load_label_mapping(mapping_path: str) -> Dict[str, int]:
+    """
+    Load label mapping from JSON file.
+
+    Args:
+        mapping_path: Path to label mapping file
+
+    Returns:
+        Dictionary mapping label names to IDs
+    """
+    try:
+        with open(mapping_path, 'r', encoding='utf-8') as f:
+            mapping = json.load(f)
+        logger.info(f"Loaded label mapping with {len(mapping)} labels from {mapping_path}")
+        return mapping
+    except Exception as e:
+        logger.error(f"Failed to load label mapping from {mapping_path}: {e}")
+        raise
+
+
+def save_predictions(
+    predictions: Dict[str, Any],
+    output_path: str
+):
+    """
+    Save model predictions to file.
+
+    Args:
+        predictions: Dictionary containing predictions and metadata
+        output_path: Output file path
+    """
+    try:
+        # Convert tensors to lists for JSON serialization
+        serializable_predictions = {}
+        for key, value in predictions.items():
+            if isinstance(value, torch.Tensor):
+                serializable_predictions[key] = value.cpu().numpy().tolist()
+            else:
+                serializable_predictions[key] = value
+
+        with open(output_path, 'w', encoding='utf-8') as f:
+            json.dump(serializable_predictions, f, indent=2, ensure_ascii=False)
+
+        logger.info(f"Saved predictions to {output_path}")
+    except Exception as e:
+        logger.error(f"Failed to save predictions to {output_path}: {e}")
+        raise
+
+
+def create_label_frequency_stats(
+    dataset_path: str,
+    label_processor: LabelProcessor
+) -> Dict[str, int]:
+    """
+    Calculate label frequency statistics from dataset.
+
+    Args:
+        dataset_path: Path to dataset
+        label_processor: Label processor instance
+
+    Returns:
+        Dictionary with label frequencies
+    """
+    # This is a placeholder - implement based on your dataset format
+    frequencies = defaultdict(int)
+
+    # Example implementation - adapt to your data format
+    # for sample in dataset:
+    #     for label in sample.labels:
+    #         frequencies[label] += 1
+
+    logger.info(f"Calculated label frequencies for {len(frequencies)} labels")
+    return dict(frequencies)

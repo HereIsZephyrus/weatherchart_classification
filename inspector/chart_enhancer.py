@@ -134,30 +134,34 @@ class ChartEnhancer:
         """
         logo_path = os.path.join(LOGO_DIR, random.choice(os.listdir(LOGO_DIR)))
         logo = Image.open(logo_path)
-        
+
         # Convert logo to RGBA if it isn't already
         if logo.mode != 'RGBA':
             logo = logo.convert('RGBA')
 
+        # Ensure chart image is also RGBA to support transparency
+        if chart.image.mode != 'RGBA':
+            chart.image = chart.image.convert('RGBA')
+
         # Resize logo to 1/2 of the image size
-        logo = logo.resize((chart.image.width // 2, chart.image.height // 2))
+        logo = logo.resize((logo.width // 2, logo.height // 2))
 
         corner_index = random.randint(0, 3) # stand for top-left, top-right, bottom-left, bottom-right
         if corner_index == 0:
-            chart.image.paste(logo, (0, 0))
+            chart.image.paste(logo, (0, 0), logo)
         elif corner_index == 1:
-            chart.image.paste(logo, (chart.image.width - logo.width, 0))
+            chart.image.paste(logo, (chart.image.width - logo.width, 0), logo)
         elif corner_index == 2:
-            chart.image.paste(logo, (0, chart.image.height - logo.height))
+            chart.image.paste(logo, (0, chart.image.height - logo.height), logo)
         else:
-            chart.image.paste(logo, (chart.image.width - logo.width, chart.image.height - logo.height))
+            chart.image.paste(logo, (chart.image.width - logo.width, chart.image.height - logo.height), logo)
         return chart
 
     def add_chart_title(self, chart: Chart) -> Chart:
         """
         add the chart title to the chart to simulate different charts
         """
-        if chart.metadata.zh_name is None:
+        if chart.metadata["zh_name"] is None:
             return chart
 
         title_str = chart.construct_title()
@@ -273,8 +277,8 @@ EnhancerConfigPresets = {
     ),
     "HighClipLowNoise": EnhancerConfig(
         use_clip=True,
-        add_logo_prob=0.2,
-        add_title_prob=0.2,
+        add_logo_prob=0.3,
+        add_title_prob=0.3,
         clip_chart_prob=0.8,  # high clip probability
         hue_shift_prob=0.1,   # low image variation
         contrast_prob=0.1,
@@ -313,8 +317,8 @@ EnhancerConfigPresets = {
     ),
     "HighColorVariation": EnhancerConfig(
         use_clip=True,
-        add_logo_prob=0.2,
-        add_title_prob=0.2,
+        add_logo_prob=0.3,
+        add_title_prob=0.3,
         clip_chart_prob=0.2,
         hue_shift_prob=0.8,   # high hue variation
         contrast_prob=0.2,

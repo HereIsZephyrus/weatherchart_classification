@@ -3,8 +3,10 @@ Dataset generate module
 """
 
 import json
+import os
 import random
 import logging
+import ast
 from pathlib import Path
 from typing import List, Dict, Any
 from enum import Enum
@@ -119,15 +121,20 @@ class DataBatchBuilder:
 
         # Get list of image files in the source directory
         source_path = Path(source_dir)
-        labels_df = pd.read_csv(source_path / "labels.csv")
+        images_path = source_path / "images"
+        labels_df = pd.read_csv(
+            source_path / "labels.csv",
+            converters={'feature': lambda x: ast.literal_eval(x) if pd.notna(x) else []}
+        )
         labels_df = labels_df.sample(n=sample_num)
 
-        for index, row in labels_df.iterrows():
-            image_path = source_path / f"{row['index']}.png"
-            save_index = self.metadata.size - index - 1
-            chart = self.enhancer(Chart(image_path, index=save_index, info=row.to_dict()))
+        save_index = self.metadata.size - 1
+        for row in labels_df.itertuples():
+            image_path = images_path / f"{row.index}.png"
+            chart = self.enhancer(Chart(image_path, index=save_index, info=row))
             chart.save(save_dir / f"{save_index:04d}.png")
             metadata_list.append(chart.metadata)
+            save_index -= 1
 
         return metadata_list
 
@@ -273,9 +280,9 @@ class DatasetManager:
                 enhancer_config=preset_values[enhancer_config_index]
             )
             total_labels = builder.build()
-            with open(builder.metadata.path / "labels.json", "w", encoding="utf-8") as f:
+            with open(os.path.join(builder.metadata.path, "labels.json"), "w", encoding="utf-8") as f:
                 json.dump(total_labels, f, ensure_ascii=False, indent=2)
-            with open(builder.metadata.path / "config.json", "w", encoding="utf-8") as f:
+            with open(os.path.join(builder.metadata.path, "config.json"), "w", encoding="utf-8") as f:
                 json.dump(builder.enhancer.config.model_dump(), f, ensure_ascii=False, indent=2)
 
             logger.info("Built batch %s", metadata.name)

@@ -52,8 +52,8 @@ class DatasetConfig(BaseModel):
     """
     config for the dataset
     """
-    batch_num: int
-    single_batch_size: int
+    EPOCH_NUM: int
+    SINGLE_EXPOCH_SIZE: int
     train_percent : ClassVar[float] = 0.7
     validation_percent : ClassVar[float] = 0.1
     test_percent : ClassVar[float] = 0.2
@@ -227,9 +227,9 @@ class DatasetManager:
         self.batch_metadata_list.clear()
 
         # calculate the number of batches for each dataset
-        train_batches = int(self.config.batch_num * self.config.train_percent)
-        val_batches = int(self.config.batch_num * self.config.validation_percent)
-        test_batches = self.config.batch_num - train_batches - val_batches
+        train_batches = int(self.config.EPOCH_NUM * self.config.train_percent)
+        val_batches = int(self.config.EPOCH_NUM * self.config.validation_percent)
+        test_batches = self.config.EPOCH_NUM - train_batches - val_batches
 
         logger.info("Generate dataset build task - train batches: %d, validation batches: %d, test batches: %d",
                    train_batches, val_batches, test_batches)
@@ -238,7 +238,7 @@ class DatasetManager:
         for i in range(train_batches):
             metadata = self.construct_metadata(
                 bid=i,
-                size=self.config.single_batch_size,
+                size=self.config.SINGLE_EXPOCH_SIZE,
                 role=DataBatchRole.TRAIN
             )
             self.batch_metadata_list.append(metadata)
@@ -247,7 +247,7 @@ class DatasetManager:
         for i in range(val_batches):
             metadata = self.construct_metadata(
                 bid=train_batches + i,
-                size=self.config.single_batch_size,
+                size=self.config.SINGLE_EXPOCH_SIZE,
                 role=DataBatchRole.VALIDATION
             )
             self.batch_metadata_list.append(metadata)
@@ -256,7 +256,7 @@ class DatasetManager:
         for i in range(test_batches):
             metadata = self.construct_metadata(
                 bid=train_batches + val_batches + i,
-                size=self.config.single_batch_size,
+                size=self.config.SINGLE_EXPOCH_SIZE,
                 role=DataBatchRole.TEST
             )
             self.batch_metadata_list.append(metadata)

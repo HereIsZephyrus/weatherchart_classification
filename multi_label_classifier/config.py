@@ -6,7 +6,7 @@ import logging
 import json
 from transformers import PretrainedConfig
 from pydantic import BaseModel
-from ..constants import BATCH_NUM, SINGLE_BATCH_SIZE
+from ..constants import EPOCH_NUM, SINGLE_EXPOCH_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,7 @@ class CNNconfig(BaseModel):
     cnn_backbone: ClassVar[str] = "resnet50"
     cnn_feature_dim: ClassVar[int] = 2048
     cnn_dropout: float
+    cnn_output_dim: int
     
 class RNNconfig(BaseModel):
     """
@@ -34,6 +35,7 @@ class RNNconfig(BaseModel):
     """
     rnn_type:ClassVar[str] = "LSTM"
     rnn_num_layers: int
+    rnn_input_dim: int
     rnn_hidden_dim: int
     rnn_dropout: float
     rnn_bidirectional:ClassVar[bool] = False
@@ -190,11 +192,14 @@ class ModelConfig(PretrainedConfig):
     model_type = "weather_chart_cnn_rnn"
 
     def __init__(self,parameter: Hyperparameter, **kwargs):
+        self.seed = 473066198
         self.cnn_config = CNNconfig(
-            cnn_dropout=parameter.cnn_dropout
+            cnn_dropout=parameter.cnn_dropout,
+            cnn_output_dim=parameter.joint_embedding_dim
         )
         self.rnn_config = RNNconfig(
             rnn_num_layers=parameter.rnn_num_layers,
+            rnn_input_dim=parameter.joint_embedding_dim,
             rnn_hidden_dim=parameter.rnn_hidden_dim,
             rnn_dropout=parameter.rnn_dropout
         )
@@ -205,8 +210,8 @@ class ModelConfig(PretrainedConfig):
             joint_embedding_dim=parameter.joint_embedding_dim
         )
         self.basic_config = BasicTrainingConfig(
-            num_epochs=BATCH_NUM,
-            batch_size=SINGLE_BATCH_SIZE,
+            num_epochs=EPOCH_NUM,
+            batch_size=SINGLE_EXPOCH_SIZE,
             gradient_accumulation_steps=parameter.gradient_accumulation_steps,
             max_grad_norm=parameter.max_grad_norm
         )

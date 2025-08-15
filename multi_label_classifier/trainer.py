@@ -6,22 +6,27 @@ import logging
 import os
 import json
 from typing import Dict, Optional, Any
+from enum import Enum
 import torch
 from torch import optim
 from torch.utils.data import DataLoader
 import numpy as np
 from tqdm.auto import tqdm
-
 from .config import ModelConfig
 from .model import WeatherChartModel
 from .utils import (
     LossCalculator, MetricsCalculator, TeacherForcingScheduler,
     LabelProcessor, set_seed
 )
+from .utils import save_predictions as save_pred_util
 
 logger = logging.getLogger(__name__)
 __all__ = ["WeatherChartTrainer"]
 
+class TrainingStage(Enum):
+    WARMUP = "warmup"
+    FINE_TUNE = "finetune"
+    
 class WeatherChartTrainer:
     """
     Trainer for CNN-RNN unified framework with two-stage training strategy.
@@ -44,24 +49,29 @@ class WeatherChartTrainer:
         self.train_dataloader = train_dataloader
         self.eval_dataloader = eval_dataloader
         self.label_processor = label_processor
-
+        
         # Training state
         self.current_epoch = 0
         self.global_step = 0
         self.best_metric = 0.0
-        self.training_stage = "warmup"  # "warmup" or "finetune"
+        self.training_stage = TrainingStage.WARMUP
+        
+        # Early stopping config
+        self.no_improvement_count = 0
+        self.early_stopping_patience = self.config.validation_config.early_stopping_patience
+        self.early_stopping_threshold = self.config.validation_config.early_stopping_threshold
 
         # Initialize components
         self.device = self._setup_device()
         self.model = self.model.to(self.device)
 
         self.loss_calculator = LossCalculator(
-            bce_weight=config.training.bce_loss_weight,
-            sequence_weight=config.training.sequence_loss_weight,
-            coverage_weight=config.training.coverage_loss_weight,
-            use_focal_loss=config.training.use_focal_loss,
-            focal_alpha=config.training.focal_alpha,
-            focal_gamma=config.training.focal_gamma
+            bce_weight=config.loss_weight_config.bce_loss_weight,
+            sequence_weight=config.loss_weight_config.sequence_loss_weight,
+            coverage_weight=config.loss_weight_config.coverage_loss_weight,
+            use_focal_loss=config.learning_strategy_config.use_focal_loss,
+            focal_alpha=config.learning_strategy_config.focal_alpha,
+            focal_gamma=config.learning_strategy_config.focal_gamma
         )
 
         if label_processor:
@@ -72,10 +82,10 @@ class WeatherChartTrainer:
             self.metrics_calculator = None
 
         self.teacher_forcing_scheduler = TeacherForcingScheduler(
-            start_ratio=config.training.teacher_forcing_start,
-            end_ratio=config.training.teacher_forcing_end,
-            total_steps=len(train_dataloader) * config.training.num_epochs,
-            schedule_type=config.training.teacher_forcing_decay
+            start_ratio=config.learning_strategy_config.teacher_forcing_start,
+            end_ratio=config.learning_strategy_config.teacher_forcing_end,
+            total_steps=len(train_dataloader) * config.basic_config.num_epochs,
+            schedule_type=config.learning_strategy_config.teacher_forcing_decay
         )
 
         # Setup optimizers and schedulers
@@ -110,10 +120,10 @@ class WeatherChartTrainer:
 
         optimizers['warmup'] = optim.AdamW(
             rnn_params,
-            lr=self.config.training.warmup_learning_rate,
-            weight_decay=self.config.training.weight_decay,
-            betas=(self.config.training.adam_beta1, self.config.training.adam_beta2),
-            eps=self.config.training.adam_epsilon
+            lr=self.config.learning_strategy_config.warmup_learning_rate,
+            weight_decay=self.config.optimizer_config.weight_decay,
+            betas=(self.config.optimizer_config.adam_beta1, self.config.optimizer_config.adam_beta2),
+            eps=self.config.optimizer_config.adam_epsilon
         )
 
         # Fine-tuning optimizers with differential learning rates
@@ -131,21 +141,21 @@ class WeatherChartTrainer:
         param_groups = [
             {
                 'params': cnn_params,
-                'lr': self.config.training.cnn_learning_rate,
+                'lr': self.config.learning_strategy_config.cnn_learning_rate,
                 'name': 'cnn'
             },
             {
                 'params': rnn_params,
-                'lr': self.config.training.rnn_learning_rate,
+                'lr': self.config.learning_strategy_config.rnn_learning_rate,
                 'name': 'rnn'
             }
         ]
 
         optimizers['finetune'] = optim.AdamW(
             param_groups,
-            weight_decay=self.config.training.weight_decay,
-            betas=(self.config.training.adam_beta1, self.config.training.adam_beta2),
-            eps=self.config.training.adam_epsilon
+            weight_decay=self.config.optimizer_config.weight_decay,
+            betas=(self.config.optimizer_config.adam_beta1, self.config.optimizer_config.adam_beta2),
+            eps=self.config.optimizer_config.adam_epsilon
         )
 
         logger.info("Setup optimizers for warmup and fine-tuning stages")
@@ -171,18 +181,21 @@ class WeatherChartTrainer:
         set_seed(self.config.seed)
 
         try:
-            for epoch in range(self.config.training.num_epochs):
+            for epoch in range(self.config.basic_config.num_epochs):
                 self.current_epoch = epoch
+                self.state.current_epoch = epoch
 
                 # Determine training stage
-                if epoch < self.config.training.warmup_epochs:
-                    self.training_stage = "warmup"
+                if epoch < self.config.learning_strategy_config.warmup_epochs:
+                    self.training_stage = TrainingStage.WARMUP
+                    self.state.training_stage = TrainingStage.WARMUP
                     if epoch == 0:  # First warmup epoch
                         self.model.freeze_cnn()
                         logger.info("Stage 1: Warmup training (CNN frozen)")
                 else:
                     if self.training_stage == "warmup":  # First fine-tuning epoch
-                        self.training_stage = "finetune"
+                        self.training_stage = TrainingStage.FINE_TUNE
+                        self.state.training_stage = TrainingStage.FINE_TUNE
                         self.model.unfreeze_cnn()
                         logger.info("Stage 2: End-to-end fine-tuning (CNN unfrozen)")
 
@@ -195,12 +208,26 @@ class WeatherChartTrainer:
 
                     # Check for best model
                     current_metric = eval_metrics.get(
-                        self.config.training.metric_for_best_model, 0.0
+                        self.config.validation_config.metric_for_best_model, 0.0
                     )
-                    if current_metric > self.best_metric:
+                    # Check if the current metric is better than the best metric
+                    is_improved = False
+                    if current_metric > self.best_metric + self.early_stopping_threshold:
                         self.best_metric = current_metric
+                        self.state.best_metric = current_metric
                         self._save_model("best_model")
-                        logger.info("New best model saved with %s: %.4f", self.config.training.metric_for_best_model, current_metric)
+                        logger.info("New best model saved with %s: %.4f", self.config.validation_config.metric_for_best_model, current_metric)
+                        self.no_improvement_count = 0
+                        is_improved = True
+                    
+                    if not is_improved:
+                        self.no_improvement_count += 1
+                        logger.info("No improvement for %d epochs", self.no_improvement_count)
+                        
+                        # Reach early stopping patience
+                        if self.config.validation_config.early_stopping and self.no_improvement_count >= self.early_stopping_patience:
+                            logger.info("Early stopping triggered after %d epochs without improvement", self.no_improvement_count)
+                            break
                 else:
                     eval_metrics = {}
 
@@ -208,17 +235,18 @@ class WeatherChartTrainer:
                 all_metrics = {**train_metrics, **eval_metrics}
                 all_metrics["epoch"] = epoch
                 all_metrics["learning_rate"] = self._get_current_lr()
-                all_metrics["training_stage"] = self.training_stage
+                all_metrics["training_stage"] = self.training_stage.value
 
                 self._log_metrics(all_metrics)
 
                 # Save checkpoint
-                if (epoch + 1) % self.config.training.save_steps == 0:
+                if (epoch + 1) % self.config.validation_config.save_steps == 0:
                     self._save_model(f"checkpoint_epoch_{epoch}")
 
                 # Update learning rate
-                if self.training_stage in self.schedulers:
-                    self.schedulers[self.training_stage].step()
+                stage_key = self.training_stage.value
+                if stage_key in self.schedulers:
+                    self.schedulers[stage_key].step()
 
         except KeyboardInterrupt:
             logger.info("Training interrupted by user")
@@ -236,7 +264,8 @@ class WeatherChartTrainer:
         self.model.train()
 
         # Get current optimizer
-        optimizer = self.optimizers[self.training_stage]
+        stage_key = self.training_stage.value
+        optimizer = self.optimizers[stage_key]
 
         # Metrics tracking
         epoch_losses = []
@@ -266,10 +295,10 @@ class WeatherChartTrainer:
             total_loss.backward()
 
             # Gradient clipping
-            if self.config.training.max_grad_norm > 0:
+            if self.config.basic_config.max_grad_norm > 0:
                 torch.nn.utils.clip_grad_norm_(
                     self.model.parameters(),
-                    self.config.training.max_grad_norm
+                    self.config.basic_config.max_grad_norm
                 )
 
             optimizer.step()
@@ -289,9 +318,10 @@ class WeatherChartTrainer:
 
             # Global step tracking
             self.global_step += 1
+            self.state.global_step = self.global_step
 
             # Log step metrics
-            if self.global_step % self.config.training.logging_steps == 0:
+            if self.global_step % 100 == 0:
                 step_metrics = {
                     "step_loss": total_loss.item(),
                     "step": self.global_step,
@@ -317,15 +347,21 @@ class WeatherChartTrainer:
         # Teacher forcing during training
         if input_sequences is not None and self.model.training:
             # Apply teacher forcing ratio
-            tf_ratio = self.teacher_forcing_scheduler.get_ratio(self.global_step)
-
-            # For simplicity, we'll use teacher forcing for now
-            # In practice, you might want to implement scheduled sampling
-            outputs = self.model(
-                images=images,
-                input_labels=input_sequences,
-                attention_mask=attention_mask
-            )
+            teacher_forcing_ratio = self.teacher_forcing_scheduler.get_ratio(self.global_step)
+            
+            # Implement scheduled sampling
+            use_teacher_forcing = True
+            if teacher_forcing_ratio < 1.0:
+                use_teacher_forcing = torch.rand(1).item() < teacher_forcing_ratio
+            
+            if use_teacher_forcing:
+                outputs = self.model(
+                    images=images,
+                    input_labels=input_sequences,
+                    attention_mask=attention_mask
+                )
+            else:
+                outputs = self.model(images=images)
         else:
             # Inference mode
             outputs = self.model(images=images)
@@ -405,7 +441,8 @@ class WeatherChartTrainer:
 
     def _get_current_lr(self) -> float:
         """Get current learning rate."""
-        optimizer = self.optimizers[self.training_stage]
+        stage_key = self.training_stage.value
+        optimizer = self.optimizers[stage_key]
         return optimizer.param_groups[0]['lr']
 
     def _log_metrics(self, metrics: Dict[str, Any], step: Optional[int] = None):
@@ -433,8 +470,8 @@ class WeatherChartTrainer:
             "epoch": self.current_epoch,
             "global_step": self.global_step,
             "best_metric": self.best_metric,
-            "training_stage": self.training_stage,
-            "optimizer_state": self.optimizers[self.training_stage].state_dict(),
+            "training_stage": self.training_stage.value,
+            "optimizer_state": self.optimizers[self.training_stage.value].state_dict(),
             "config": self.config.to_dict()
         }
 
@@ -489,9 +526,7 @@ class WeatherChartTrainer:
                 # Generate sequences using beam search
                 generation_outputs = self.model.generate(
                     images=images,
-                    max_length=self.config.model.max_sequence_length,
-                    beam_width=self.config.model.beam_width,
-                    early_stopping=self.config.model.beam_early_stopping
+                    early_stopping=self.config.unified_config.beam_early_stopping
                 )
 
                 # Get parallel predictions
@@ -531,7 +566,6 @@ class WeatherChartTrainer:
                 if output_path is None:
                     output_path = os.path.join(self.output_dir, "predictions.json")
 
-                from .utils import save_predictions as save_pred_util
                 save_pred_util(predictions, output_path)
 
             if return_predictions:

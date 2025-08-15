@@ -11,7 +11,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
-from .config import TokenConfig
+from .vocab import vocabulary
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +23,9 @@ class LabelProcessor:
     def __init__(
         self,
         label_mapping: Dict[str, int],
-        token_config: TokenConfig,
     ):
         self.label_mapping = label_mapping
         self.reverse_mapping = {v: k for k, v in label_mapping.items()}
-        self.token_config = token_config
         self.num_labels = len(label_mapping)
 
         logger.info("Initialized LabelProcessor with %d labels", self.num_labels)
@@ -42,14 +40,8 @@ class LabelProcessor:
         Returns:
             List of label IDs
         """
-        label_ids = []
-        for name in label_names:
-            if name in self.label_mapping:
-                # Add 3 to account for special tokens (BOS, EOS, PAD)
-                label_ids.append(self.label_mapping[name] + 3)
-            else:
-                logger.warning("Unknown label: %s", name)
-        return label_ids
+        # Use vocabulary directly to encode labels
+        return vocabulary.embedding(label_names, add_boseos=False)
 
     def decode_labels(self, label_ids: List[int]) -> List[str]:
         """
@@ -61,20 +53,8 @@ class LabelProcessor:
         Returns:
             List of label names
         """
-        label_names = []
-        for label_id in label_ids:
-            # Skip special tokens
-            if label_id in [self.token_config.bos_token_id, self.token_config.eos_token_id, self.token_config.pad_token_id]:
-                continue
-
-            # Convert back to original label space
-            original_id = label_id - 3
-            if original_id in self.reverse_mapping:
-                label_names.append(self.reverse_mapping[original_id])
-            else:
-                logger.warning("Unknown label ID: %d", label_id)
-
-        return label_names
+        # Use vocabulary directly to decode labels
+        return vocabulary.detokenize(label_ids, keep_bos_eos=False)
 
     def create_sequence(
         self,
@@ -93,15 +73,15 @@ class LabelProcessor:
         Returns:
             Input sequence tensor
         """
-        # Encode labels
-        label_ids = self.encode_labels(label_names)
+        # Encode labels (without BOS/EOS)
+        label_ids = vocabulary.embedding(label_names, add_boseos=False)
 
         # Order labels based on strategy
         if order_strategy == "frequency" and label_frequencies:
             # Sort by frequency (high to low)
             label_ids.sort(
                 key=lambda x: label_frequencies.get(
-                    self.reverse_mapping.get(x - 3, ""), 0
+                    vocabulary.idx2token[x] if x < len(vocabulary.idx2token) else "", 0
                 ),
                 reverse=True
             )
@@ -110,11 +90,11 @@ class LabelProcessor:
         # "fixed" order keeps original order
 
         # Create sequence: [BOS, label1, label2, ..., EOS]
-        sequence = [self.token_config.bos_token_id] + label_ids + [self.token_config.eos_token_id]
+        sequence = [vocabulary.bos] + label_ids + [vocabulary.eos]
 
         # Truncate if too long
-        if len(sequence) > self.token_config.max_sequence_length:
-            sequence = sequence[:self.token_config.max_sequence_length-1] + [self.token_config.eos_token_id]
+        if len(sequence) > vocabulary.max_sequence_length:
+            sequence = sequence[:vocabulary.max_sequence_length-1] + [vocabulary.eos]
 
         return torch.tensor(sequence, dtype=torch.long)
 
@@ -141,11 +121,12 @@ class LabelProcessor:
         Returns:
             Multi-hot vector tensor
         """
-        multi_hot = torch.zeros(self.num_labels, dtype=torch.float)
-
+        multi_hot = torch.zeros(len(vocabulary), dtype=torch.float)
+        
+        # Get token IDs for each label name
         for name in label_names:
-            if name in self.label_mapping:
-                multi_hot[self.label_mapping[name]] = 1.0
+            if name in vocabulary.token2idx:
+                multi_hot[vocabulary.token2idx[name]] = 1.0
 
         return multi_hot
 
@@ -181,7 +162,7 @@ class LabelProcessor:
                 # Pad with PAD token
                 padding = torch.full(
                     (max_length - seq_len,), 
-                    self.token_config.pad_token_id, 
+                    vocabulary.pad, 
                     dtype=torch.long
                 )
                 padded_seq = torch.cat([seq, padding])
@@ -565,15 +546,13 @@ def save_predictions(
 
 
 def create_label_frequency_stats(
-    dataset_path: str,
-    label_processor: LabelProcessor
+    dataset_path: str
 ) -> Dict[str, int]:
     """
     Calculate label frequency statistics from dataset.
 
     Args:
         dataset_path: Path to dataset
-        label_processor: Label processor instance
 
     Returns:
         Dictionary with label frequencies
@@ -585,6 +564,11 @@ def create_label_frequency_stats(
     # for sample in dataset:
     #     for label in sample.labels:
     #         frequencies[label] += 1
+
+    # 如果可用，直接使用vocabulary中的统计信息
+    if hasattr(vocabulary, '_token_freqs'):
+        for token, freq in vocabulary._token_freqs:
+            frequencies[token] = freq
 
     logger.info("Calculated label frequencies for %d labels", len(frequencies))
     return dict(frequencies)

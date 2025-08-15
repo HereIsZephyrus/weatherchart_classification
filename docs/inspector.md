@@ -273,8 +273,8 @@ from inspector import DatasetManager, DatasetConfig
 
 # 配置数据集生成参数
 config = DatasetConfig(
-    batch_num=50,              # 总批次数
-    single_batch_size=1000,    # 每批次样本数
+    EPOCH_NUM=50,              # 总批次数
+    SINGLE_EXPOCH_SIZE=1000,    # 每批次样本数
     train_percent=0.7,         # 训练集比例
     validation_percent=0.1,    # 验证集比例
     test_percent=0.2          # 测试集比例
@@ -357,8 +357,8 @@ parser.convert_dataset()
 
 # 2. 配置数据集生成
 config = DatasetConfig(
-    batch_num=20,
-    single_batch_size=500,
+    EPOCH_NUM=20,
+    SINGLE_EXPOCH_SIZE=500,
     train_percent=0.8,
     validation_percent=0.1,
     test_percent=0.1

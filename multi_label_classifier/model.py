@@ -13,7 +13,7 @@ from torch import nn
 import torch.nn.functional as F
 from transformers import PreTrainedModel
 from torchvision import models
-from .config import ModelConfig, UnifiedConfig
+from .config import ModelConfig, UnifiedConfig, CNNconfig, RNNconfig
 from .vocab import vocabulary
 
 logger = logging.getLogger(__name__)
@@ -25,22 +25,22 @@ class CNNEncoder(nn.Module):
     Outputs global features through Global Average Pooling.
     """
 
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: CNNconfig):
         super().__init__()
         self.config = config
 
         self.backbone = models.resnet50(pretrained=True)
         # Remove final classification layer
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
-        self.dropout = nn.Dropout(config.cnn_config.cnn_dropout)
+        self.dropout = nn.Dropout(config.cnn_dropout)
 
         # Feature projection to joint embedding space
         self.feature_projection = nn.Linear(
-            config.cnn_config.cnn_feature_dim,
-            config.unified_config.joint_embedding_dim
+            config.cnn_feature_dim,
+            config.cnn_output_dim
         )
 
-        logger.info("Initialized CNN encoder with %s", config.cnn_config.cnn_backbone)
+        logger.info("Initialized CNN encoder with %s", config.cnn_backbone)
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         """
@@ -96,36 +96,36 @@ class RNNDecoder(nn.Module):
     Implements joint feature fusion and attention mechanism.
     """
 
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: RNNconfig, cnn_feature_dim: int):
         super().__init__()
         self.config = config
 
         # RNN layers
         self.rnn = nn.LSTM(
-            input_size=config.unified_config.joint_embedding_dim,
-            hidden_size=config.rnn_config.rnn_hidden_dim,
-            num_layers=config.rnn_config.rnn_num_layers,
-            dropout=config.rnn_config.rnn_dropout if config.rnn_config.rnn_num_layers > 1 else 0,
-            bidirectional=config.rnn_config.rnn_bidirectional,
+            input_size=config.rnn_input_dim,
+            hidden_size=config.rnn_hidden_dim,
+            num_layers=config.rnn_num_layers,
+            dropout=config.rnn_dropout if config.rnn_num_layers > 1 else 0,
+            bidirectional=config.rnn_bidirectional,
             batch_first=True
         )
 
         # Joint feature fusion layers
         self.feature_fusion = nn.Linear(
-            config.rnn_config.rnn_hidden_dim + config.cnn_config.cnn_feature_dim,
-            config.unified_config.joint_embedding_dim
+            config.rnn_hidden_dim + cnn_feature_dim,
+            config.rnn_input_dim
         )
 
         # Attention mechanism for coverage
         self.attention = nn.MultiheadAttention(
-            embed_dim=config.unified_config.joint_embedding_dim,
+            embed_dim=config.rnn_input_dim,
             num_heads=8,
-            dropout=config.rnn_config.rnn_dropout,
+            dropout=config.rnn_dropout,
             batch_first=True
         )
 
-        self.layer_norm = nn.LayerNorm(config.unified_config.joint_embedding_dim)
-        self.dropout = nn.Dropout(config.rnn_config.rnn_dropout)
+        self.layer_norm = nn.LayerNorm(config.rnn_input_dim)
+        self.dropout = nn.Dropout(config.rnn_dropout)
 
         logger.info("Initialized RNN decoder")
 
@@ -237,6 +237,7 @@ class DualPredictionHead(nn.Module):
 
         return sequential_logits, parallel_logits
 
+
 class WeatherChartModel(PreTrainedModel):
     """
     CNN-RNN Unified Framework for Weather Chart Multi-label Classification.
@@ -253,15 +254,29 @@ class WeatherChartModel(PreTrainedModel):
         self.config = config
 
         # Initialize model components
-        self.cnn_encoder = CNNEncoder(config)
-        self.label_embedding = LabelEmbedding(config)
-        self.rnn_decoder = RNNDecoder(config)
+        self.cnn_encoder = CNNEncoder(config.cnn_config)
+        self.label_embedding = LabelEmbedding(config.unified_config)
+        self.rnn_decoder = RNNDecoder(config.rnn_config, config.cnn_config.cnn_feature_dim)
         self.prediction_head = DualPredictionHead(config)
 
         # Initialize weights
         self.init_weights()
 
         logger.info("Initialized WeatherChartModel with CNN-RNN unified framework")
+
+    def get_position_embeddings(self):
+        """
+        Return None since this model doesn't use position embeddings.
+        Required by PreTrainedModel abstract method.
+        """
+        return None
+
+    def resize_position_embeddings(self, new_num_position_embeddings: int):
+        """
+        No-op since this model doesn't use position embeddings.
+        Required by PreTrainedModel abstract method.
+        """
+        pass
 
     def init_weights(self):
         """Initialize model weights."""
@@ -286,7 +301,6 @@ class WeatherChartModel(PreTrainedModel):
         images: torch.Tensor,
         input_labels: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
-        **kwargs
     ) -> Dict[str, torch.Tensor]:
         """
         Forward pass through the unified framework.
@@ -341,27 +355,18 @@ class WeatherChartModel(PreTrainedModel):
     def generate(
         self,
         images: torch.Tensor,
-        max_length: Optional[int] = None,
-        beam_width: Optional[int] = None,
-        early_stopping: bool = True,
-        **kwargs
+        early_stopping: bool = True
     ) -> Dict[str, torch.Tensor]:
         """
         Generate label sequences using beam search decoding.
 
         Args:
             images: Input images [batch_size, 3, height, width]
-            max_length: Maximum sequence length
-            beam_width: Beam search width
             early_stopping: Whether to use early stopping
 
         Returns:
             Dictionary containing generated sequences and scores
         """
-        if max_length is None:
-            max_length = self.config.max_sequence_length
-        if beam_width is None:
-            beam_width = self.config.beam_width
 
         batch_size = images.shape[0]
         device = images.device
@@ -370,28 +375,31 @@ class WeatherChartModel(PreTrainedModel):
         image_features = self.cnn_encoder(images)
 
         # Initialize beam search
+        
         beam_sequences = torch.full(
-            (batch_size, beam_width, 1),
-            self.config.bos_token_id,
+            (batch_size, self.config.beam_width, 1),
+            vocabulary.bos,
             dtype=torch.long,
             device=device
         )
-        beam_scores = torch.zeros(batch_size, beam_width, device=device)
+        beam_scores = torch.zeros(batch_size, self.config.beam_width, device=device)
         beam_scores[:, 1:] = float('-inf')  # Only first beam is active initially
 
         # Track completed sequences
         completed_sequences = []
         completed_scores = []
 
-        for _ in range(max_length - 1):
+        # Add safety check to prevent infinite loop
+        max_iterations = min(vocabulary.max_sequence_length - 1, 50)  # Safety limit
+        for step in range(max_iterations):
             # Current sequence length
             current_length = beam_sequences.shape[-1]
 
             # Reshape for batch processing
-            current_sequences = beam_sequences.view(batch_size * beam_width, current_length)
+            current_sequences = beam_sequences.view(batch_size * self.config.beam_width, current_length)
             expanded_image_features = image_features.unsqueeze(1).expand(
-                batch_size, beam_width, -1
-            ).contiguous().view(batch_size * beam_width, -1)
+                batch_size, self.config.beam_width, -1
+            ).contiguous().view(batch_size * self.config.beam_width, -1)
 
             # Get label embeddings for current sequences
             label_embeddings = self.label_embedding(current_sequences)
@@ -408,7 +416,7 @@ class WeatherChartModel(PreTrainedModel):
 
             # Reshape back to beam format
             next_token_logits = next_token_logits.view(
-                batch_size, beam_width, -1
+                batch_size, self.config.beam_width, -1
             )
 
             # Calculate scores for all possible next tokens
@@ -421,7 +429,7 @@ class WeatherChartModel(PreTrainedModel):
 
             # Select top beam_width candidates
             top_scores, top_indices = torch.topk(
-                candidate_scores, beam_width, dim=-1
+                candidate_scores, self.config.beam_width, dim=-1
             )
 
             # Convert flat indices back to beam and token indices
@@ -436,7 +444,7 @@ class WeatherChartModel(PreTrainedModel):
                 batch_sequences = []
                 batch_scores = []
 
-                for beam_idx in range(beam_width):
+                for beam_idx in range(self.config.beam_width):
                     # Get the parent beam and next token
                     parent_beam = beam_indices[batch_idx, beam_idx]
                     next_token = token_indices[batch_idx, beam_idx]
@@ -452,7 +460,7 @@ class WeatherChartModel(PreTrainedModel):
                     ])
 
                     # Check if sequence is completed (EOS token)
-                    if next_token == self.config.eos_token_id:
+                    if next_token == vocabulary.eos:
                         if batch_idx >= len(completed_sequences):
                             completed_sequences.extend([[] for _ in range(batch_idx + 1 - len(completed_sequences))])
                             completed_scores.extend([[] for _ in range(batch_idx + 1 - len(completed_scores))])
@@ -464,12 +472,12 @@ class WeatherChartModel(PreTrainedModel):
                         batch_scores.append(score)
 
                 # Pad to beam_width if needed
-                while len(batch_sequences) < beam_width:
+                while len(batch_sequences) < self.config.beam_width:
                     batch_sequences.append(beam_sequences[batch_idx, 0])  # Duplicate first beam
                     batch_scores.append(float('-inf'))
 
-                new_sequences.append(torch.stack(batch_sequences[:beam_width]))
-                new_scores.append(torch.stack(batch_scores[:beam_width]))
+                new_sequences.append(torch.stack(batch_sequences[:self.config.beam_width]))
+                new_scores.append(torch.stack(batch_scores[:self.config.beam_width]))
 
             beam_sequences = torch.stack(new_sequences)
             beam_scores = torch.stack(new_scores)
@@ -515,7 +523,7 @@ class WeatherChartModel(PreTrainedModel):
         max_seq_length = max(seq.shape[0] for seq in final_sequences)
         padded_sequences = torch.full(
             (batch_size, max_seq_length),
-            self.config.pad_token_id,
+            vocabulary.pad,
             dtype=torch.long,
             device=device
         )

@@ -13,7 +13,7 @@ inspector模块提供了完整的数据集检查、处理与生成能力，包�
 - **RadarDatasetParser**：雷达数据集解析器，用于处理Hugging Face上的天气分析数据集
 
 ### 数据集生成与管理
-- **DatasetManager & DataBatchBuilder**：完整的数据集生成管理系统，支持批量数据生成、训练/验证/测试集划分
+- **EpochBuilder & BatchBuilder**：完整的数据集生成管理系统，支持批量数据生成、训练/验证/测试集划分
 
 项目根目录中的 `statistics.py` 提供统一入口：
 - `python statistics.py gallery`：检查 `train_data/gallery` 下的图廊数据集，并输出 HTML 报告
@@ -250,13 +250,13 @@ enhanced_chart = enhancer.enhance(chart)
 enhanced_chart.save("output/enhanced.png")
 ```
 
-## DatasetManager & DataBatchBuilder（数据集生成管理）
+## EpochBuilder & BatchBuilder（数据集生成管理）
 
 - **功能**：完整的数据集生成和管理系统，支持大规模批量数据生成、自动训练/验证/测试集划分。
 
 - **核心组件**：
-  - **DatasetManager**：数据集管理器，负责整体配置和批次管理
-  - **DataBatchBuilder**：批次构建器，负责单个批次的数据生成
+  - **EpochBuilder**：数据集管理器，负责整体配置和批次管理
+  - **BatchBuilder**：批次构建器，负责单个批次的数据生成
   - **DatasetConfig**：配置类，定义数据集生成参数
 
 - **主要特性**：
@@ -269,19 +269,19 @@ enhanced_chart.save("output/enhanced.png")
 - **使用方式**：
 
 ```python
-from inspector import DatasetManager, DatasetConfig
+from inspector import EpochBuilder, DatasetConfig
 
 # 配置数据集生成参数
 config = DatasetConfig(
     EPOCH_NUM=50,              # 总批次数
-    SINGLE_EXPOCH_SIZE=1000,    # 每批次样本数
+    SAMPLE_PER_BATCH=1000,    # 每批次样本数
     train_percent=0.7,         # 训练集比例
     validation_percent=0.1,    # 验证集比例
     test_percent=0.2          # 测试集比例
 )
 
 # 创建数据集管理器并生成数据集
-manager = DatasetManager(config)
+manager = EpochBuilder(config)
 manager.build_dataset()  # 执行完整的数据集生成流程
 ```
 
@@ -344,7 +344,7 @@ train_data/radar/
 ```python
 from inspector import (
     RadarDatasetParser, 
-    DatasetManager, 
+    EpochBuilder, 
     DatasetConfig,
     Chart,
     ChartEnhancer,
@@ -358,14 +358,14 @@ parser.convert_dataset()
 # 2. 配置数据集生成
 config = DatasetConfig(
     EPOCH_NUM=20,
-    SINGLE_EXPOCH_SIZE=500,
+    SAMPLE_PER_BATCH=500,
     train_percent=0.8,
     validation_percent=0.1,
     test_percent=0.1
 )
 
 # 3. 生成训练数据集
-manager = DatasetManager(config)
+manager = EpochBuilder(config)
 manager.build_dataset()
 
 # 4. 单独处理图表（可选）

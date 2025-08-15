@@ -1,5 +1,5 @@
 """
-Dataset generate module
+Training dataset generate module
 """
 
 import json
@@ -8,27 +8,17 @@ import random
 import logging
 import ast
 from pathlib import Path
-from typing import List, Dict, Any, ClassVar
+from typing import List, Dict, Any
 from enum import Enum
 from pydantic import BaseModel
 import pandas as pd
 from .chart import Chart, ChartMetadata
 from .chart_enhancer import ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
-from ..constants import DATASET_DIR, GALLERY_DIR#, RADAR_DIR
+from ..constants import GALLERY_DIR, EPOCH_NUM, SAMPLE_PER_BATCH, BATCH_PER_EPOCH, DATASET_DIR
 
 logger = logging.getLogger(__name__)
 
-class DataBatchRole(tuple[str, float], Enum):
-    """
-    role of the data batch.
-    the first element is the role name,
-    the second element is the type percentage that contained in one data batch.
-    """
-    TRAIN = ("train", 0.7)
-    VALIDATION = ("validation", 1.0)
-    TEST = ("test", 0.9)
-
-class DataBatchStatus(str, Enum):
+class ProgressStatus(str, Enum):
     """
     status of the data batch
     """
@@ -36,33 +26,31 @@ class DataBatchStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
 
-class DataBatchMetedata(BaseModel):
+class BatchMetedata(BaseModel):
     """
     metadata for a batch of data
     """
     batch_id: int
     name: str
-    path: str
+    source_path: str
+    save_path: str
     size: int
-    progress: float
-    status: DataBatchStatus
-    role: DataBatchRole
+    status: ProgressStatus
 
-class DatasetConfig(BaseModel):
+class EpochMetedata(BaseModel):
     """
-    config for the dataset
+    metadata for an epoch of data
     """
-    EPOCH_NUM: int
-    SINGLE_EXPOCH_SIZE: int
-    train_percent : ClassVar[float] = 0.7
-    validation_percent : ClassVar[float] = 0.1
-    test_percent : ClassVar[float] = 0.2
+    epoch_id: int
+    name: str
+    save_path: str
+    status: ProgressStatus
 
-class DataBatchBuilder:
+class BatchBuilder:
     """
     builder for the data batch
     """
-    def __init__(self, metadata: DataBatchMetedata, enhancer_config: EnhancerConfig = EnhancerConfigPresets["None"]):
+    def __init__(self, metadata: BatchMetedata, enhancer_config: EnhancerConfig = EnhancerConfigPresets["None"]):
         self.metadata = metadata
         self.enhancer = ChartEnhancer(enhancer_config)
 
@@ -79,7 +67,7 @@ class DataBatchBuilder:
 
         # Bootstrapping
         sampled_images = random.choices(image_files, k=sample_num)
-        logger.info("Bootstrap sampling generated %d samples from %s", len(sampled_images), folder_path)
+        logger.debug("Bootstrap sampling generated %d samples from %s", len(sampled_images), folder_path)
         return sampled_images
 
     def select_type(self) -> List[str]:
@@ -88,18 +76,17 @@ class DataBatchBuilder:
         """
         percentage = self.metadata.role.value[1]
 
-        # Get list of subdirectories in GALLERY_DIR
-        gallery_path = Path(GALLERY_DIR)
+        gallery_path = Path(self.metadata.source_path)
         type_dirs = [str(d) for d in gallery_path.iterdir() if d.is_dir()]
         if not type_dirs:
-            logger.warning("No subdirectories found in %s", GALLERY_DIR)
+            logger.warning("No subdirectories found in %s", self.metadata.source_path)
             return []
 
         size = int(len(type_dirs) * percentage)
         selected_types = random.choices(type_dirs, k=size)
         return selected_types
 
-    def generate_image_dataset(self, image_path_list: List[str], save_dir: Path) -> List[ChartMetadata]:
+    def generate_image_dataset(self, image_path_list: List[str]) -> List[ChartMetadata]:
         """
         generate the data for a data batch
         """
@@ -109,7 +96,7 @@ class DataBatchBuilder:
         for i, image_path in enumerate(image_path_list):
             index = index_list[i]
             chart = self.enhancer(Chart(image_path, index=index))
-            chart.save(save_dir / f"{index:04d}.png")
+            chart.save(self.metadata.save_path / "images" / f"{index:04d}.png")
             metadata_list.append(chart.metadata)
 
         return metadata_list
@@ -143,7 +130,7 @@ class DataBatchBuilder:
         """
         main function to build a data batch
         """
-        batch_dir = Path(self.metadata.path)
+        batch_dir = Path(self.metadata.save_path)
         batch_dir.mkdir(parents=True, exist_ok=True)
 
         images_dir = batch_dir / "images"
@@ -163,10 +150,7 @@ class DataBatchBuilder:
         ramin_type = random.choice(types)
         ramin_images = self.boostraping(sample_num=remaining_images, folder_path=ramin_type)
         sampled_images.extend(ramin_images)
-        ecmwf_labels = self.generate_image_dataset(
-            image_path_list=sampled_images,
-            save_dir=images_dir
-        )
+        ecmwf_labels = self.generate_image_dataset(image_path_list=sampled_images)
 
         #radar_num = self.metadata.size - len(sampled_images)
         #radar_labels = self.sample_huggingface_dataset(
@@ -177,99 +161,40 @@ class DataBatchBuilder:
         #total_labels = ecmwf_labels
         return ecmwf_labels
 
-class DatasetManager:
+class EpochBuilder:
     """
-    manager for the dataset
+    manager for one epoch of data
     """
-    def __init__(self, config: DatasetConfig):
-        self.dataset_dir = Path(DATASET_DIR)
-        self.config = config
-        self.batch_metadata_list: List[DataBatchMetedata] = []
-        self.standardize_percentage()
+    def __init__(self, metadata: EpochMetedata):
+        self.metadata = metadata
+        self.batch_metadata_list: List[BatchMetedata] = []
 
-    def standardize_percentage(self) -> None:
-        """
-        ensure the sum of the percentage of train, validation and test is 1
-        """
-        total = self.config.train_percent + self.config.validation_percent + self.config.test_percent
-
-        if abs(total - 1.0) > 1e-6:
-            logger.warning("The sum of the percentage is not 1 (%.3f), automatically standardize", total)
-
-            self.config.train_percent /= total
-            self.config.validation_percent /= total
-            self.config.test_percent /= total
-
-            logger.info("After standardization, the ratio - train: %.2f, validation: %.2f, test: %.2f",
-                       self.config.train_percent,
-                       self.config.validation_percent,
-                       self.config.test_percent)
-
-    def construct_metadata(self, bid : int, size: int, role: DataBatchRole) -> DataBatchMetedata:
-        """
-        construct the metadata for a batch of data
-        """
-        name = f"{role.value[0]}_batch_{bid:04d}"
-        return DataBatchMetedata(
-            batch_id=bid,
-            name=name,
-            path=f"{DATASET_DIR}/{name}",
-            size=size,
-            progress=0,
-            status=DataBatchStatus.PENDING,
-            role=role
-        )
-
-    def generate_dataset_build_task(self) -> None:
+    def generate_epoch_build_task(self) -> None:
         """
         generate the dataset build task
         """
         self.batch_metadata_list.clear()
-
-        # calculate the number of batches for each dataset
-        train_batches = int(self.config.EPOCH_NUM * self.config.train_percent)
-        val_batches = int(self.config.EPOCH_NUM * self.config.validation_percent)
-        test_batches = self.config.EPOCH_NUM - train_batches - val_batches
-
-        logger.info("Generate dataset build task - train batches: %d, validation batches: %d, test batches: %d",
-                   train_batches, val_batches, test_batches)
-
         # generate training batches
-        for i in range(train_batches):
-            metadata = self.construct_metadata(
-                bid=i,
-                size=self.config.SINGLE_EXPOCH_SIZE,
-                role=DataBatchRole.TRAIN
+        for i in range(BATCH_PER_EPOCH):
+            name = f"batch_{i:02d}"
+            self.batch_metadata_list.append(
+                BatchMetedata(
+                    batch_id=self.metadata.epoch_id * 100 + i,
+                    name=name,
+                    source_path=GALLERY_DIR,
+                    save_path=f"{self.metadata.save_path}/{name}",
+                    size=SAMPLE_PER_BATCH,
+                    status=ProgressStatus.PENDING,
+                )
             )
-            self.batch_metadata_list.append(metadata)
 
-        # generate validation batches
-        for i in range(val_batches):
-            metadata = self.construct_metadata(
-                bid=train_batches + i,
-                size=self.config.SINGLE_EXPOCH_SIZE,
-                role=DataBatchRole.VALIDATION
-            )
-            self.batch_metadata_list.append(metadata)
-
-        # generate test batches
-        for i in range(test_batches):
-            metadata = self.construct_metadata(
-                bid=train_batches + val_batches + i,
-                size=self.config.SINGLE_EXPOCH_SIZE,
-                role=DataBatchRole.TEST
-            )
-            self.batch_metadata_list.append(metadata)
-
-        logger.info("Generated %d batch tasks", len(self.batch_metadata_list))
-
-    def build_dataset(self) -> None:
+    def build(self) -> None:
         """
         main function to build the dataset
         """
-        self.generate_dataset_build_task()
+        self.generate_epoch_build_task()
         # ensure the output directory exists
-        self.dataset_dir.mkdir(parents=True, exist_ok=True)
+        self.metadata.save_path.mkdir(parents=True, exist_ok=True)
 
         preset_keys = list(EnhancerConfigPresets.keys())
         preset_values = list(EnhancerConfigPresets.values())
@@ -279,16 +204,55 @@ class DatasetManager:
                preset_keys[enhancer_config_index] == "ExtremeVariation":
                 # if extreme, roll again to decrease the probability
                 enhancer_config_index = random.randint(0, len(preset_keys) - 1)
-            builder = DataBatchBuilder(
+            batch_builder = BatchBuilder(
                 metadata=metadata,
                 enhancer_config=preset_values[enhancer_config_index]
             )
-            total_labels = builder.build()
-            with open(os.path.join(builder.metadata.path, "labels.json"), "w", encoding="utf-8") as f:
+            total_labels = batch_builder.build()
+            with open(os.path.join(batch_builder.metadata.save_path, "labels.json"), "w", encoding="utf-8") as f:
                 json.dump(total_labels, f, ensure_ascii=False, indent=2)
-            with open(os.path.join(builder.metadata.path, "config.json"), "w", encoding="utf-8") as f:
-                json.dump(builder.enhancer.config.model_dump(), f, ensure_ascii=False, indent=2)
+            with open(os.path.join(batch_builder.metadata.save_path, "config.json"), "w", encoding="utf-8") as f:
+                json.dump(batch_builder.enhancer.config.model_dump(), f, ensure_ascii=False, indent=2)
 
             logger.info("Built batch %s", metadata.name)
 
-        logger.info("All batches built")
+        logger.info("All batches built for epoch %s", self.metadata.name)
+
+class TrainingDatasetBuilder:
+    """
+    manager for the dataset
+    """
+    def __init__(self):
+        self.output_dir = Path(DATASET_DIR)
+        self.input_dir = Path(GALLERY_DIR)
+        self.epoch_metadata_list: List[EpochMetedata] = []
+
+    def generate_dataset_build_task(self) -> None:
+        """
+        generate the dataset build task
+        """
+        self.epoch_metadata_list.clear()
+        for i in range(EPOCH_NUM):
+            name = f"epoch_{i:03d}"
+            self.epoch_metadata_list.append(
+                EpochMetedata(
+                    epoch_id=i,
+                    name=name,
+                    save_path=f"{self.output_dir}/{name}",
+                    status=ProgressStatus.PENDING,
+                )
+            )
+
+    def build(self) -> None:
+        """
+        main function to build the dataset
+        """
+        self.generate_dataset_build_task()
+        for metadata in self.epoch_metadata_list:
+            epoch_builder = EpochBuilder(metadata=metadata)
+            epoch_builder.build()
+            with open(os.path.join(epoch_builder.metadata.save_path, "metadata.json"), "w", encoding="utf-8") as f:
+                json.dump(epoch_builder.metadata.model_dump(), f, ensure_ascii=False, indent=2)
+            logger.info("Built epoch %s", metadata.name)
+
+        logger.info("All epochs built")

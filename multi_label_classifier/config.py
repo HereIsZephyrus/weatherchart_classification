@@ -6,7 +6,7 @@ import logging
 import json
 from transformers import PretrainedConfig
 from pydantic import BaseModel
-from ..constants import EPOCH_NUM, SINGLE_EXPOCH_SIZE
+from ..constants import EPOCH_NUM, SAMPLE_PER_BATCH
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +211,7 @@ class ModelConfig(PretrainedConfig):
         )
         self.basic_config = BasicTrainingConfig(
             num_epochs=EPOCH_NUM,
-            batch_size=SINGLE_EXPOCH_SIZE,
+            batch_size=SAMPLE_PER_BATCH,
             gradient_accumulation_steps=parameter.gradient_accumulation_steps,
             max_grad_norm=parameter.max_grad_norm
         )

@@ -7,14 +7,27 @@ import logging
 from typing import Dict, List
 import pandas as pd
 from inspector import GalleryInspector, GalleryStats
+from ..constants import GALLERY_DIR
 
 logger = logging.getLogger(__name__)
+
+__all__ = ["vocabulary"]
 
 class Vocabulary:
     """
     Vocabulary for the weather chart classification.
     """
+    _instance = None  # singleton
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, base_dir: str, min_frequency: int = 10, max_sequence_length: int = 5):
+        if hasattr(self, "_initialized"):
+            return
+        self._initialized = True
         self.base_dir:str = base_dir
         self.max_sequence_length: int = max_sequence_length
         self.min_frequency: int = min_frequency
@@ -104,3 +117,5 @@ class Vocabulary:
         Padding token
         """
         return 3
+
+vocabulary = Vocabulary(GALLERY_DIR)

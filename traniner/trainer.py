@@ -20,7 +20,7 @@ from .utils import (
 )
 
 logger = logging.getLogger(__name__)
-
+__all__ = ["WeatherChartTrainer"]
 
 class WeatherChartTrainer:
     """

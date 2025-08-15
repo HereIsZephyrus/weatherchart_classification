@@ -7,15 +7,17 @@ Image → CNN Encoder → Feature Projection → Joint Embedding Space ← Label
               RNN Sequence Decoder → {Sequential Head, Parallel Head} → Element Prediction
 """
 import logging
+from typing import Tuple, Optional, Dict
 import torch
 from torch import nn
 import torch.nn.functional as F
-from typing import Tuple, Optional, Dict
 from transformers import PreTrainedModel
 from torchvision import models
-from .config import ModelConfig
+from .config import ModelConfig, UnifiedConfig
+from .vocab import vocabulary
 
 logger = logging.getLogger(__name__)
+__all__ = ["WeatherChartModel"]
 
 class CNNEncoder(nn.Module):
     """
@@ -66,19 +68,14 @@ class LabelEmbedding(nn.Module):
     Learnable label embedding matrix for weather elements.
     """
 
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: UnifiedConfig):
         super().__init__()
         self.config = config
-
-        # Label embedding matrix including special tokens
-        # +3 for BOS, EOS, PAD tokens
-        vocab_size = config.label_config.num_labels + 3
-        self.embedding = nn.Embedding(vocab_size, config.label_config.label_embedding_dim)
+        self.embedding = nn.Embedding(len(vocabulary), self.config.joint_embedding_dim)
 
         # Initialize embeddings
         nn.init.xavier_uniform_(self.embedding.weight)
-
-        logger.info("Initialized label embedding with vocab_size=%d", vocab_size)
+        logger.info("Initialized label embedding")
 
     def forward(self, label_ids: torch.Tensor) -> torch.Tensor:
         """
@@ -105,32 +102,32 @@ class RNNDecoder(nn.Module):
 
         # RNN layers
         self.rnn = nn.LSTM(
-            input_size=config.label_config.label_embedding_dim,
+            input_size=config.unified_config.joint_embedding_dim,
             hidden_size=config.rnn_config.rnn_hidden_dim,
-            num_layers=config.rnn_num_layers,
-            dropout=config.rnn_dropout if config.rnn_num_layers > 1 else 0,
-            bidirectional=config.rnn_bidirectional,
+            num_layers=config.rnn_config.rnn_num_layers,
+            dropout=config.rnn_config.rnn_dropout if config.rnn_config.rnn_num_layers > 1 else 0,
+            bidirectional=config.rnn_config.rnn_bidirectional,
             batch_first=True
         )
 
         # Joint feature fusion layers
         self.feature_fusion = nn.Linear(
-            config.rnn_config.rnn_hidden_dim + config.unified_config.joint_embedding_dim,
+            config.rnn_config.rnn_hidden_dim + config.cnn_config.cnn_feature_dim,
             config.unified_config.joint_embedding_dim
         )
 
         # Attention mechanism for coverage
         self.attention = nn.MultiheadAttention(
-            embed_dim=config.joint_embedding_dim,
+            embed_dim=config.unified_config.joint_embedding_dim,
             num_heads=8,
-            dropout=0.1,
+            dropout=config.rnn_config.rnn_dropout,
             batch_first=True
         )
 
         self.layer_norm = nn.LayerNorm(config.unified_config.joint_embedding_dim)
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(config.rnn_config.rnn_dropout)
 
-        logger.info("Initialized RNN decoder with %s", config.rnn_config.rnn_type)
+        logger.info("Initialized RNN decoder")
 
     def forward(
         self,
@@ -199,17 +196,17 @@ class DualPredictionHead(nn.Module):
         # Sequential prediction head
         self.sequential_head = nn.Linear(
             config.unified_config.joint_embedding_dim,
-            config.label_config.num_labels + 3  # +3 for special tokens
+            len(vocabulary)
         )
 
         # Parallel BCE prediction head
         self.parallel_head = nn.Linear(
             config.unified_config.joint_embedding_dim,
-            config.label_config.num_labels
+            len(vocabulary)
         )
 
         # Dropout for regularization
-        self.dropout = nn.Dropout(0.1)
+        self.dropout = nn.Dropout(config.rnn_config.rnn_dropout)
 
         logger.info("Initialized dual prediction heads")
 
@@ -239,7 +236,6 @@ class DualPredictionHead(nn.Module):
         parallel_logits = self.parallel_head(self.dropout(pooled_features))
 
         return sequential_logits, parallel_logits
-
 
 class WeatherChartModel(PreTrainedModel):
     """

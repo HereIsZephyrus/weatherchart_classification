@@ -276,22 +276,22 @@ default_hyperparameter = Hyperparameter(
     # CNN Parameters
     cnn_dropout = 0.1,
     # RNN Parameters
-    rnn_num_layers = 2,
-    rnn_hidden_dim = 384,
+    rnn_num_layers = 1,
+    rnn_hidden_dim = 64,
     rnn_dropout = 0.2,
     # Beam Search Parameters
     beam_width = 2,
     beam_max_length = 10,
     beam_early_stopping = True,
     # Model Architecture Parameters
-    joint_embedding_dim = 256,
+    joint_embedding_dim = 128,
     # Training Control Parameters
     gradient_accumulation_steps = 1,
     max_grad_norm = 1.0,
     # Learning Rate Parameters
-    cnn_learning_rate = 1e-4,
-    rnn_learning_rate = 5e-4,
-    warmup_learning_rate = 2e-3,
+    cnn_learning_rate = 1e-3,
+    rnn_learning_rate = 5e-3,
+    warmup_learning_rate = 2e-4,
     # Optimizer Parameters
     weight_decay = 0.01,
     adam_beta1 = 0.9,

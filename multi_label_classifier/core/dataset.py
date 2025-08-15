@@ -16,6 +16,14 @@ from .vocab import vocabulary
 
 logger = logging.getLogger(__name__)
 
+class ProgressStatus(str, Enum):
+    """
+    status of the data batch
+    """
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+
 class WeatherChartDataset(Dataset):
     """
     Dataset class for weather chart classification.

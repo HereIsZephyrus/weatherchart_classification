@@ -8,7 +8,6 @@ import json
 import torch
 import random
 from torch.utils.data import Dataset, DataLoader
-import pandas as pd
 from PIL import Image
 from torchvision import transforms
 from .config import ModelConfig
@@ -51,7 +50,7 @@ class WeatherChartDataset(Dataset):
             if self.image_transform:
                 image = self.image_transform(image)
         except Exception as e:
-            logger.error(f"Error loading image {image_path}: {e}")
+            logger.error("Error loading image %s: %s", image_path, str(e))
             # Return a placeholder image if loading fails
             image = torch.zeros((3, 224, 224))
         
@@ -84,20 +83,15 @@ class DatasetLoader:
 
     def __init__(self, config: ModelConfig):
         self.config = config
-        
-        # Create label mapping from vocabulary
-        label_mapping = {token: idx for idx, token in enumerate(vocabulary.idx2token) 
-                        if token not in ['<unk>', '<bos>', '<eos>', '<pad>']}
-        
-        self.label_processor = LabelProcessor(label_mapping)
-        
+        self.label_processor = LabelProcessor(vocabulary.token2idx)
+
         # Default image transforms
         self.image_transform = transforms.Compose([
             transforms.Resize((224, 224)),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
-        
+
         logger.info("Initialized DatasetLoader")
 
     def load_dataset(self, dataset_path: str) -> Tuple[WeatherChartDataset, WeatherChartDataset]:
@@ -111,31 +105,42 @@ class DatasetLoader:
             Tuple of (train_dataset, val_dataset)
         """
         # Load dataset metadata
-        metadata_path = os.path.join(dataset_path, "metadata.json")
+        metadata_path = os.path.join(dataset_path, "labels.json")
         try:
             with open(metadata_path, 'r', encoding='utf-8') as f:
-                metadata = json.load(f)
+                all_samples = json.load(f)
         except Exception as e:
-            logger.error(f"Error loading metadata from {metadata_path}: {e}")
+            logger.error("Error loading metadata from %s: %s", metadata_path, str(e))
             raise
             
-        # Extract samples
-        all_samples = metadata.get("samples", [])
-        logger.info(f"Loaded {len(all_samples)} samples from metadata")
+        logger.info("Loaded %d samples from metadata", len(all_samples))
+        
+        # Process samples to add image paths
+        processed_samples = []
+        for sample in all_samples:
+            # Create sample with image path
+            processed_sample = {
+                "image_path": os.path.join(dataset_path, "images", f"{sample['index']:04}.webp"),
+                "labels": sample["label"],
+                "index": sample["index"],
+                "en_name": sample["en_name"],
+                "zh_name": sample["zh_name"]
+            }
+            processed_samples.append(processed_sample)
         
         # Calculate label frequencies for ordering
         label_frequencies = {}
-        for sample in all_samples:
-            for label in sample.get("labels", []):
+        for sample in processed_samples:
+            for label in sample["labels"]:
                 label_frequencies[label] = label_frequencies.get(label, 0) + 1
         
         # Split into train/val
         random.seed(42)  # For reproducibility
-        random.shuffle(all_samples)
+        random.shuffle(processed_samples)
         
-        split_idx = int(len(all_samples) * 0.9)  # 90% train, 10% val
-        train_samples = all_samples[:split_idx]
-        val_samples = all_samples[split_idx:]
+        split_idx = int(len(processed_samples) * 0.9)  # 90% train, 10% val
+        train_samples = processed_samples[:split_idx]
+        val_samples = processed_samples[split_idx:]
         
         # Create datasets
         train_dataset = WeatherChartDataset(
@@ -153,7 +158,7 @@ class DatasetLoader:
             order_strategy="fixed"  # Fixed order for validation
         )
         
-        logger.info(f"Split dataset into {len(train_dataset)} train and {len(val_dataset)} validation samples")
+        logger.info("Split dataset into %d train and %d validation samples", len(train_dataset), len(val_dataset))
         return train_dataset, val_dataset
     
     def create_data_loaders(

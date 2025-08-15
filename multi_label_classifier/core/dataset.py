@@ -5,8 +5,8 @@ import logging
 from typing import List, Dict, Tuple, Optional, Any
 import os
 import json
-import torch
 import random
+import torch
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from torchvision import transforms

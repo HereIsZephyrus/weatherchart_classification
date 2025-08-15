@@ -6,7 +6,7 @@ import logging
 import json
 from transformers import PretrainedConfig
 from pydantic import BaseModel
-from ..constants import EPOCH_NUM, SAMPLE_PER_BATCH
+from ..settings import EPOCH_NUM, SAMPLE_PER_BATCH
 
 logger = logging.getLogger(__name__)
 
@@ -276,37 +276,3 @@ class ModelConfig(PretrainedConfig):
         }
         with open("config.json", "w", encoding="utf-8") as f:
             json.dump(total_config, f, indent=2)
-
-default_hyperparameter = Hyperparameter(
-    # CNN Parameters
-    cnn_dropout = 0.1,
-    # RNN Parameters
-    rnn_num_layers = 1,
-    rnn_hidden_dim = 64,
-    rnn_dropout = 0.2,
-    # Beam Search Parameters
-    beam_width = 2,
-    beam_max_length = 10,
-    beam_early_stopping = True,
-    # Model Architecture Parameters
-    joint_embedding_dim = 128,
-    # Training Control Parameters
-    gradient_accumulation_steps = 1,
-    max_grad_norm = 1.0,
-    # Learning Rate Parameters
-    cnn_learning_rate = 1e-3,
-    rnn_learning_rate = 5e-3,
-    warmup_learning_rate = 2e-4,
-    # Optimizer Parameters
-    weight_decay = 0.01,
-    adam_beta1 = 0.9,
-    adam_beta2 = 0.999,
-    adam_epsilon = 1e-8,
-    # Loss Weight Parameters
-    bce_loss_weight = 1.0,
-    sequence_loss_weight = 0.5,
-    coverage_loss_weight = 0.1,
-    # Early Stopping Parameters
-    early_stopping_patience = 5,
-    early_stopping_threshold = 0.001
-)

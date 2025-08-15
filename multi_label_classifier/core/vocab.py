@@ -7,7 +7,7 @@ import logging
 from typing import Dict, List
 import pandas as pd
 from inspector import GalleryInspector, GalleryStats
-from ..constants import GALLERY_DIR
+from ..settings import GALLERY_DIR
 
 logger = logging.getLogger(__name__)
 

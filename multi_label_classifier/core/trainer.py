@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 __all__ = ["WeatherChartTrainer"]
 
 class TrainingStage(Enum):
+    """
+    training stage
+    """
     WARMUP = "warmup"
     FINE_TUNE = "finetune"
     

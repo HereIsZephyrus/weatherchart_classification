@@ -1,16 +1,10 @@
 """
-Trainer package for CNN-RNN unified framework.
+multi-label classifier package
 """
-from .config import ModelConfig, Hyperparameter
-from .dataset import WeatherChartDataset, DatasetLoader
-from .trainer import WeatherChartTrainer
-from .model import WeatherChartModel
+from .core import *
+from .utils import *
 
-__init__ = [
-    "ModelConfig",
-    "Hyperparameter",
-    "WeatherChartDataset",
-    "DatasetLoader",
-    "WeatherChartTrainer",
-    "WeatherChartModel"
+__all__ = [
+    "core",
+    "utils",
 ]

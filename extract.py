@@ -37,7 +37,7 @@ def extract_and_classify_source_from_pptx():
             nmc_image_list.append(os.path.join(IMAGE_DIR, image))
 
     source_classifier.check_nmc_image(nmc_image_list)
-    source_classifier.save_classified_list("classified_list.json")
+    source_classifier.save_classified_list("reports/classified_list.json")
 
 if __name__ == '__main__':
     extract_and_classify_source_from_pptx()

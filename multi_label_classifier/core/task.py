@@ -12,9 +12,8 @@ from typing import List, Dict, Any
 from enum import Enum
 from pydantic import BaseModel
 import pandas as pd
-from .chart import Chart, ChartMetadata
-from .chart_enhancer import ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
-from ..constants import GALLERY_DIR, EPOCH_NUM, SAMPLE_PER_BATCH, BATCH_PER_EPOCH, DATASET_DIR
+from ..utils import Chart, ChartMetadata, ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
+from ..settings import GALLERY_DIR, EPOCH_NUM, SAMPLE_PER_BATCH, BATCH_PER_EPOCH, DATASET_DIR
 
 logger = logging.getLogger(__name__)
 

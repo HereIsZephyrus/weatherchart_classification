@@ -6,7 +6,6 @@ import logging
 import json
 from transformers import PretrainedConfig
 from pydantic import BaseModel
-from inspector.dataset_maker import DatasetConfig
 from ..constants import BATCH_NUM, SINGLE_BATCH_SIZE
 
 logger = logging.getLogger(__name__)
@@ -52,41 +51,6 @@ class UnifiedConfig(BaseModel):
     beam_max_length: int
     beam_early_stopping: bool
     joint_embedding_dim: int
-
-class TokenConfig(BaseModel):
-    """
-    Token configuration
-    Args:
-        bos_token_id: BOS token id
-        eos_token_id: EOS token id
-        pad_token_id: PAD token id
-    """
-    bos_token_id: ClassVar[int] = 0
-    eos_token_id: ClassVar[int] = 1
-    pad_token_id: ClassVar[int] = 2
-
-class LabelConfig(BaseModel):
-    """
-    Label configuration
-    Args:
-        num_labels: Number of labels
-        label_embedding_dim: Label embedding dimension
-        max_sequence_length: Max sequence length
-    """
-    _num_labels: ClassVar[int] = 0
-    label_embedding_dim: ClassVar[int] = 256
-    max_sequence_length: ClassVar[int] = 5
-
-    @property
-    def num_labels(self) -> int:
-        if self._num_labels == 0:
-            self._num_labels = self.count_label()
-        return self._num_labels
-
-    @classmethod
-    def count_label(cls) -> int:
-        dataset_config = DatasetConfig(batch_num=BATCH_NUM, single_batch_size=SINGLE_BATCH_SIZE)
-        return len(dataset_config.label_list)
 
 class BasicTrainingConfig(BaseModel):
     """
@@ -240,8 +204,6 @@ class ModelConfig(PretrainedConfig):
             beam_early_stopping=parameter.beam_early_stopping,
             joint_embedding_dim=parameter.joint_embedding_dim
         )
-        self.token_config = TokenConfig()
-        self.label_config = LabelConfig()
         self.basic_config = BasicTrainingConfig(
             num_epochs=BATCH_NUM,
             batch_size=SINGLE_BATCH_SIZE,
@@ -301,8 +263,6 @@ class ModelConfig(PretrainedConfig):
             "cnn_config": self.cnn_config.model_dump(),
             "rnn_config": self.rnn_config.model_dump(),
             "unified_config": self.unified_config.model_dump(),
-            "token_config": self.token_config.model_dump(),
-            "label_config": self.label_config.model_dump(),
             "basic_learning_config": self.basic_config.model_dump(),
             "learning_strategy_config": self.learning_strategy_config.model_dump(),
             "optimizer_config": self.optimizer_config.model_dump(),

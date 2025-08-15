@@ -11,7 +11,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from typing import Tuple, Optional, Dict
-from transformers import PreTrainedModel, PretrainedConfig
+from transformers import PreTrainedModel
 from torchvision import models
 from .config import ModelConfig
 
@@ -34,7 +34,7 @@ class CNNEncoder(nn.Module):
 
         # Feature projection to joint embedding space
         self.feature_projection = nn.Linear(
-            config.cnn_config.cnn_feature_dim, 
+            config.cnn_config.cnn_feature_dim,
             config.unified_config.joint_embedding_dim
         )
 
@@ -133,7 +133,7 @@ class RNNDecoder(nn.Module):
         logger.info("Initialized RNN decoder with %s", config.rnn_config.rnn_type)
 
     def forward(
-        self, 
+        self,
         label_embeddings: torch.Tensor,
         image_features: torch.Tensor,
         hidden_state: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
@@ -198,7 +198,7 @@ class DualPredictionHead(nn.Module):
 
         # Sequential prediction head
         self.sequential_head = nn.Linear(
-            config.unified_config.joint_embedding_dim, 
+            config.unified_config.joint_embedding_dim,
             config.label_config.num_labels + 3  # +3 for special tokens
         )
 
@@ -214,7 +214,7 @@ class DualPredictionHead(nn.Module):
         logger.info("Initialized dual prediction heads")
 
     def forward(
-        self, 
+        self,
         fused_features: torch.Tensor,
         pooled_features: Optional[torch.Tensor] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -375,7 +375,7 @@ class WeatherChartModel(PreTrainedModel):
 
         # Initialize beam search
         beam_sequences = torch.full(
-            (batch_size, beam_width, 1), 
+            (batch_size, beam_width, 1),
             self.config.bos_token_id,
             dtype=torch.long,
             device=device
@@ -387,7 +387,7 @@ class WeatherChartModel(PreTrainedModel):
         completed_sequences = []
         completed_scores = []
 
-        for step in range(max_length - 1):
+        for _ in range(max_length - 1):
             # Current sequence length
             current_length = beam_sequences.shape[-1]
 

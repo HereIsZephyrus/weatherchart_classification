@@ -2,13 +2,13 @@
 Trainer class for CNN-RNN unified framework with two-stage training strategy.
 Based on the training strategy from docs/train.md section 3.2.
 """
-import torch
-from torch import optim
-from torch.utils.data import DataLoader
-from typing import Dict, Optional, Any
 import logging
 import os
 import json
+from typing import Dict, Optional, Any
+import torch
+from torch import optim
+from torch.utils.data import DataLoader
 import numpy as np
 from tqdm.auto import tqdm
 
@@ -95,7 +95,7 @@ class WeatherChartTrainer:
         else:
             device = torch.device(self.config.device)
 
-        logger.info(f"Using device: {device}")
+        logger.info("Using device: %s", device)
         return device
 
     def _setup_optimizers(self) -> Dict[str, optim.Optimizer]:
@@ -249,9 +249,9 @@ class WeatherChartTrainer:
             leave=False
         )
 
-        for batch_idx, batch in enumerate(pbar):
+        for batch in pbar:
             # Move batch to device
-            batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
+            batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                     for k, v in batch.items()}
 
             # Forward pass
@@ -301,7 +301,7 @@ class WeatherChartTrainer:
 
         # Calculate epoch averages
         train_metrics = {
-            f"train_{key}": np.mean(values) 
+            f"train_{key}": np.mean(values)
             for key, values in epoch_metrics.items()
         }
         train_metrics["train_loss"] = np.mean(epoch_losses)
@@ -333,8 +333,8 @@ class WeatherChartTrainer:
         return outputs
 
     def _calculate_loss(
-        self, 
-        outputs: Dict[str, torch.Tensor], 
+        self,
+        outputs: Dict[str, torch.Tensor],
         batch: Dict[str, torch.Tensor]
     ) -> Dict[str, torch.Tensor]:
         """Calculate multi-task loss."""
@@ -366,7 +366,7 @@ class WeatherChartTrainer:
         with torch.no_grad():
             for batch in tqdm(self.eval_dataloader, desc="Evaluating", leave=False):
                 # Move batch to device
-                batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v 
+                batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
                         for k, v in batch.items()}
 
                 # Forward pass
@@ -438,7 +438,7 @@ class WeatherChartTrainer:
             "config": self.config.to_dict()
         }
 
-        with open(os.path.join(checkpoint_dir, "training_state.json"), "w") as f:
+        with open(os.path.join(checkpoint_dir, "training_state.json"), "w", encoding="utf-8") as f:
             json.dump(training_state, f, indent=2)
 
         logger.info("Saved checkpoint: %s", checkpoint_dir)
@@ -452,7 +452,7 @@ class WeatherChartTrainer:
         # Load training state
         training_state_path = os.path.join(checkpoint_path, "training_state.json")
         if os.path.exists(training_state_path):
-            with open(training_state_path, "r") as f:
+            with open(training_state_path, "r", encoding="utf-8") as f:
                 training_state = json.load(f)
 
             self.current_epoch = training_state.get("epoch", 0)
@@ -469,7 +469,7 @@ class WeatherChartTrainer:
         logger.info("Loaded checkpoint from: %s", checkpoint_path)
 
     def predict(
-        self, 
+        self,
         dataloader: DataLoader,
         return_predictions: bool = True,
         save_predictions: bool = False,

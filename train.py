@@ -174,7 +174,7 @@ def load_config(args) -> ExperimentConfig:
 
     # Load from config file if provided
     if args.config and os.path.exists(args.config):
-        logger.info(f"Loading configuration from {args.config}")
+        logger.info("Loading configuration from %s", args.config)
         with open(args.config, 'r', encoding='utf-8') as f:
             config_dict = json.load(f)
         config = ExperimentConfig.from_dict(config_dict)
@@ -224,7 +224,7 @@ def setup_distributed_training(local_rank: int):
     if local_rank != -1:
         torch.cuda.set_device(local_rank)
         dist.init_process_group(backend='nccl')
-        logger.info(f"Initialized distributed training on rank {local_rank}")
+        logger.info("Initialized distributed training on rank %d", local_rank)
 
 
 def create_model(config: ExperimentConfig) -> WeatherChartModel:
@@ -235,8 +235,8 @@ def create_model(config: ExperimentConfig) -> WeatherChartModel:
     # Create model
     model = WeatherChartModel(model_config)
 
-    logger.info(f"Created model with {sum(p.numel() for p in model.parameters())} parameters")
-    logger.info(f"Trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad)}")
+    logger.info("Created model with %d parameters", sum(p.numel() for p in model.parameters()))
+    logger.info("Trainable parameters: %d", sum(p.numel() for p in model.parameters() if p.requires_grad))
 
     return model
 
@@ -287,7 +287,7 @@ def main():
     config_path = os.path.join(config.output_dir, "config.json")
     with open(config_path, 'w', encoding='utf-8') as f:
         json.dump(config.to_dict(), f, indent=2, ensure_ascii=False)
-    logger.info(f"Saved configuration to {config_path}")
+    logger.info("Saved configuration to %s", config_path)
 
     # Setup label processor
     label_processor = setup_label_processor(config)
@@ -333,7 +333,7 @@ def main():
     # Resume from checkpoint if specified
     if args.resume_from_checkpoint:
         trainer.load_checkpoint(args.resume_from_checkpoint)
-        logger.info(f"Resumed training from {args.resume_from_checkpoint}")
+        logger.info("Resumed training from %s", args.resume_from_checkpoint)
 
     try:
         if args.evaluate_only:
@@ -341,7 +341,7 @@ def main():
             logger.info("Running evaluation only...")
             if val_loader:
                 eval_metrics = trainer._evaluate()
-                logger.info(f"Evaluation results: {eval_metrics}")
+                logger.info("Evaluation results: %s", eval_metrics)
             else:
                 logger.error("No validation data provided for evaluation")
 
@@ -374,7 +374,7 @@ def main():
                 logger.info("Test predictions saved successfully")
 
     except Exception as e:
-        logger.error(f"Training failed with error: {e}")
+        logger.error("Training failed with error: %s", e)
         raise
 
     logger.info("Training completed successfully")

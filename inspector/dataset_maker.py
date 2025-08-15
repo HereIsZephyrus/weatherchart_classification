@@ -14,7 +14,7 @@ from pydantic import BaseModel
 import pandas as pd
 from .chart import Chart, ChartMetadata
 from .chart_enhancer import ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
-from ..constants import DATASET_DIR, GALLERY_DIR, RADAR_DIR
+from ..constants import DATASET_DIR, GALLERY_DIR#, RADAR_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,7 @@ class DataBatchBuilder:
         # Get list of image files in the folder
         folder = Path(folder_path)
         image_files = [str(f) for f in folder.glob("*.webp")]
+        image_files.extend([str(f) for f in folder.glob("*.png")])
         if not image_files:
             return []
 
@@ -149,7 +150,7 @@ class DataBatchBuilder:
         images_dir.mkdir(exist_ok=True)
 
         types = self.select_type()
-        image_num_each_type = int(self.metadata.size / (len(types) + 1)) # consider radar data
+        image_num_each_type = int(self.metadata.size / (len(types)))
 
         sampled_images = []
         for type_folder in types:
@@ -158,20 +159,23 @@ class DataBatchBuilder:
                 logger.warning("No image files found in %s", type_folder)
                 continue
             sampled_images.extend(type_images)
+        remaining_images = self.metadata.size - len(sampled_images)
+        ramin_type = random.choice(types)
+        ramin_images = self.boostraping(sample_num=remaining_images, folder_path=ramin_type)
+        sampled_images.extend(ramin_images)
         ecmwf_labels = self.generate_image_dataset(
             image_path_list=sampled_images,
             save_dir=images_dir
         )
 
-        radar_num = self.metadata.size - len(sampled_images)
-        radar_labels = self.sample_huggingface_dataset(
-            sample_num=radar_num,
-            save_dir=images_dir,
-            source_dir=RADAR_DIR
-        )
-
-        total_labels = ecmwf_labels + radar_labels
-        return total_labels
+        #radar_num = self.metadata.size - len(sampled_images)
+        #radar_labels = self.sample_huggingface_dataset(
+        #    sample_num=radar_num,
+        #    save_dir=images_dir,
+        #    source_dir=RADAR_DIR
+        #)
+        #total_labels = ecmwf_labels
+        return ecmwf_labels
 
 class DatasetManager:
     """

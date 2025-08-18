@@ -18,6 +18,7 @@ from .utils import (
     LossCalculator, MetricsCalculator, TeacherForcingScheduler,
     LabelProcessor, set_seed
 )
+from .vocab import vocabulary
 from .utils import save_predictions as save_pred_util
 
 logger = logging.getLogger(__name__)
@@ -44,6 +45,7 @@ class WeatherChartTrainer:
         config: ModelConfig,
         model: WeatherChartModel,
         train_dataloader: DataLoader,
+        output_dir: str,
         eval_dataloader: Optional[DataLoader] = None,
         label_processor: Optional[LabelProcessor] = None
     ):
@@ -51,6 +53,14 @@ class WeatherChartTrainer:
         self.model = model
         self.train_dataloader = train_dataloader
         self.eval_dataloader = eval_dataloader
+        # Initialize label processor if not provided
+        if label_processor is None:
+            # Create label mapping from vocabulary
+            label_mapping = {vocabulary.idx2token[i]: i for i in range(len(vocabulary.idx2token)) 
+                           if vocabulary.idx2token[i] not in [vocabulary.unk, vocabulary.bos, vocabulary.eos]}
+            label_processor = LabelProcessor(label_mapping=label_mapping)
+            logger.info("Created label processor with %d labels from vocabulary", len(label_mapping))
+        
         self.label_processor = label_processor
         
         # Training state
@@ -96,7 +106,7 @@ class WeatherChartTrainer:
         self.schedulers = self._setup_schedulers()
 
         # Output directories
-        self.output_dir = config.output_dir
+        self.output_dir = output_dir
         os.makedirs(self.output_dir, exist_ok=True)
 
         logger.info("Initialized WeatherChartTrainer")
@@ -186,19 +196,16 @@ class WeatherChartTrainer:
         try:
             for epoch in range(self.config.basic_config.num_epochs):
                 self.current_epoch = epoch
-                self.state.current_epoch = epoch
 
                 # Determine training stage
                 if epoch < self.config.learning_strategy_config.warmup_epochs:
                     self.training_stage = TrainingStage.WARMUP
-                    self.state.training_stage = TrainingStage.WARMUP
                     if epoch == 0:  # First warmup epoch
                         self.model.freeze_cnn()
                         logger.info("Stage 1: Warmup training (CNN frozen)")
                 else:
-                    if self.training_stage == "warmup":  # First fine-tuning epoch
+                    if self.training_stage == TrainingStage.WARMUP:  # First fine-tuning epoch
                         self.training_stage = TrainingStage.FINE_TUNE
-                        self.state.training_stage = TrainingStage.FINE_TUNE
                         self.model.unfreeze_cnn()
                         logger.info("Stage 2: End-to-end fine-tuning (CNN unfrozen)")
 
@@ -217,7 +224,7 @@ class WeatherChartTrainer:
                     is_improved = False
                     if current_metric > self.best_metric + self.early_stopping_threshold:
                         self.best_metric = current_metric
-                        self.state.best_metric = current_metric
+                        self.best_metric = current_metric
                         self._save_model("best_model")
                         logger.info("New best model saved with %s: %.4f", self.config.validation_config.metric_for_best_model, current_metric)
                         self.no_improvement_count = 0
@@ -321,7 +328,7 @@ class WeatherChartTrainer:
 
             # Global step tracking
             self.global_step += 1
-            self.state.global_step = self.global_step
+            self.global_step = self.global_step
 
             # Log step metrics
             if self.global_step % 100 == 0:
@@ -344,8 +351,54 @@ class WeatherChartTrainer:
     def _forward_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Forward pass for one step."""
         images = batch["images"]
-        input_sequences = batch.get("input_sequences")
-        attention_mask = batch.get("attention_mask")
+        
+        # Process labels to create input sequences for teacher forcing
+        input_sequences = None
+        attention_mask = None
+        
+        if "labels" in batch and self.model.training:
+            # Convert label names to sequences for teacher forcing
+            batch_sequences = []
+            max_seq_len = 0
+            
+            for label_list in batch["labels"]:
+                if label_list:  # Non-empty label list
+                    sequence = self.label_processor.create_sequence(label_list)
+                    batch_sequences.append(sequence)
+                    max_seq_len = max(max_seq_len, len(sequence))
+                else:
+                    # Empty label case - create sequence with just BOS/EOS
+                    sequence = torch.tensor([vocabulary.bos, vocabulary.eos], dtype=torch.long)
+                    batch_sequences.append(sequence)
+                    max_seq_len = max(max_seq_len, len(sequence))
+            
+            # Pad sequences to same length
+            if batch_sequences:
+                padded_sequences = []
+                attention_masks = []
+                
+                for sequence in batch_sequences:
+                    seq_len = len(sequence)
+                    if seq_len < max_seq_len:
+                        # Pad with PAD tokens
+                        padded_seq = torch.cat([
+                            sequence, 
+                            torch.full((max_seq_len - seq_len,), vocabulary.unk, dtype=torch.long)
+                        ])
+                    else:
+                        padded_seq = sequence
+                    
+                    # Create attention mask (1 for real tokens, 0 for padding)
+                    attention_mask_seq = torch.cat([
+                        torch.ones(seq_len, dtype=torch.long),
+                        torch.zeros(max_seq_len - seq_len, dtype=torch.long)
+                    ])
+                    
+                    padded_sequences.append(padded_seq)
+                    attention_masks.append(attention_mask_seq)
+                
+                input_sequences = torch.stack(padded_sequences).to(self.device)
+                attention_mask = torch.stack(attention_masks).to(self.device)
 
         # Teacher forcing during training
         if input_sequences is not None and self.model.training:
@@ -381,9 +434,72 @@ class WeatherChartTrainer:
         parallel_logits = outputs.get("parallel_logits")
         attention_weights = outputs.get("attention_weights")
 
-        target_sequences = batch.get("target_sequences")
-        target_labels = batch.get("target_labels")
-        sequence_mask = batch.get("attention_mask")
+        # Create target sequences and labels from batch
+        target_sequences = None
+        target_labels = None
+        sequence_mask = None
+        
+        if "labels" in batch:
+            # Create target sequences (shifted input sequences for next token prediction)
+            batch_target_sequences = []
+            batch_target_labels = []
+            max_seq_len = 0
+            
+            for label_list in batch["labels"]:
+                if label_list:  # Non-empty label list
+                    # Create input sequence with BOS/EOS
+                    sequence = self.label_processor.create_sequence(label_list)
+                    # Target sequence is input sequence shifted by 1 (for next token prediction)
+                    target_seq = sequence[1:]  # Remove BOS, keep EOS
+                    batch_target_sequences.append(target_seq)
+                    max_seq_len = max(max_seq_len, len(target_seq))
+                    
+                    # Create binary label vector for parallel prediction
+                    label_vector = torch.zeros(self.label_processor.num_labels)
+                    for label_name in label_list:
+                        if label_name in self.label_processor.label_mapping:
+                            label_idx = self.label_processor.label_mapping[label_name]
+                            if label_idx < len(label_vector):
+                                label_vector[label_idx] = 1.0
+                    batch_target_labels.append(label_vector)
+                else:
+                    # Empty label case
+                    target_seq = torch.tensor([vocabulary.eos], dtype=torch.long)
+                    batch_target_sequences.append(target_seq)
+                    max_seq_len = max(max_seq_len, len(target_seq))
+                    
+                    # Empty label vector
+                    label_vector = torch.zeros(self.label_processor.num_labels)
+                    batch_target_labels.append(label_vector)
+            
+            # Pad target sequences
+            if batch_target_sequences:
+                padded_target_sequences = []
+                attention_masks = []
+                
+                for target_seq in batch_target_sequences:
+                    seq_len = len(target_seq)
+                    if seq_len < max_seq_len:
+                        # Pad with PAD tokens
+                        padded_seq = torch.cat([
+                            target_seq, 
+                            torch.full((max_seq_len - seq_len,), vocabulary.unk, dtype=torch.long)
+                        ])
+                    else:
+                        padded_seq = target_seq
+                    
+                    # Create sequence mask (1 for real tokens, 0 for padding)
+                    mask = torch.cat([
+                        torch.ones(seq_len, dtype=torch.long),
+                        torch.zeros(max_seq_len - seq_len, dtype=torch.long)
+                    ])
+                    
+                    padded_target_sequences.append(padded_seq)
+                    attention_masks.append(mask)
+                
+                target_sequences = torch.stack(padded_target_sequences).to(self.device)
+                sequence_mask = torch.stack(attention_masks).to(self.device)
+                target_labels = torch.stack(batch_target_labels).to(self.device)
 
         return self.loss_calculator.calculate_loss(
             sequential_logits=sequential_logits,
@@ -417,11 +533,22 @@ class WeatherChartTrainer:
                     eval_losses.append(loss_dict["total_loss"].item())
 
                 # Collect predictions for metrics
-                if "parallel_logits" in outputs:
+                if "parallel_logits" in outputs and "labels" in batch:
                     predictions = torch.sigmoid(outputs["parallel_logits"])
-                    targets = batch.get("target_labels")
-
-                    if targets is not None:
+                    
+                    # Create target labels from batch labels
+                    batch_target_labels = []
+                    for label_list in batch["labels"]:
+                        label_vector = torch.zeros(self.label_processor.num_labels)
+                        for label_name in label_list:
+                            if label_name in self.label_processor.label_mapping:
+                                label_idx = self.label_processor.label_mapping[label_name]
+                                if label_idx < len(label_vector):
+                                    label_vector[label_idx] = 1.0
+                        batch_target_labels.append(label_vector)
+                    
+                    if batch_target_labels:
+                        targets = torch.stack(batch_target_labels).to(self.device)
                         all_predictions.append(predictions.cpu().numpy())
                         all_targets.append(targets.cpu().numpy())
 

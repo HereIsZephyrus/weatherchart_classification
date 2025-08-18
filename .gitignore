@@ -232,3 +232,4 @@ dataset/
 *.ppt
 *.zip
 *.tar*
+*experiment_metadata.json

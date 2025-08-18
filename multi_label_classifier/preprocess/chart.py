@@ -11,8 +11,8 @@ import logging
 import random
 from PIL import Image
 from pydantic import BaseModel
-from ...constants import GALLERY_MAPPING_BILINGUAL_PATH
 from pandas import Series
+from ...constants import GALLERY_MAPPING_BILINGUAL_PATH
 logger = logging.getLogger(__name__)
 
 class ChartMetadata(BaseModel):

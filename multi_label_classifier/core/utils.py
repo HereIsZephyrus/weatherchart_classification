@@ -162,7 +162,7 @@ class LabelProcessor:
                 # Pad with PAD token
                 padding = torch.full(
                     (max_length - seq_len,), 
-                    vocabulary.pad, 
+                    vocabulary.unk, 
                     dtype=torch.long
                 )
                 padded_seq = torch.cat([seq, padding])

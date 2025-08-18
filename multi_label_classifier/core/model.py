@@ -12,7 +12,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 from transformers import PreTrainedModel
-from torchvision import models
+from torchvision.models import resnet50, ResNet50_Weights
 from .config import ModelConfig, UnifiedConfig, CNNconfig, RNNconfig
 from .vocab import vocabulary
 
@@ -29,7 +29,7 @@ class CNNEncoder(nn.Module):
         super().__init__()
         self.config = config
 
-        self.backbone = models.resnet50(pretrained=True)
+        self.backbone = resnet50(weights=ResNet50_Weights.DEFAULT)
         # Remove final classification layer
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
         self.dropout = nn.Dropout(config.cnn_dropout)
@@ -285,7 +285,7 @@ class WeatherChartModel(PreTrainedModel):
 
         # Initialize RNN decoder
         for name, param in self.rnn_decoder.named_parameters():
-            if 'weight' in name:
+            if 'weight' in name and param.dim() >= 2:
                 nn.init.xavier_uniform_(param)
             elif 'bias' in name:
                 nn.init.zeros_(param)
@@ -523,7 +523,7 @@ class WeatherChartModel(PreTrainedModel):
         max_seq_length = max(seq.shape[0] for seq in final_sequences)
         padded_sequences = torch.full(
             (batch_size, max_seq_length),
-            vocabulary.pad,
+            vocabulary.unk,
             dtype=torch.long,
             device=device
         )

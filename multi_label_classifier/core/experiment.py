@@ -12,7 +12,7 @@ import yaml
 from pydantic import BaseModel
 from .trainer import WeatherChartTrainer
 from .model import WeatherChartModel
-from .config import ModelConfig
+from .config import ModelConfig, Hyperparameter
 from .dataset import create_dataloaders
 
 logger = logging.getLogger(__name__)
@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 class TrainingConfig(BaseModel):
     """Training configuration"""
     trainer_name: str
+    dataset_root: str
     experiments_root: str
     training_mode: Literal["predict", "resume", "evaluate", "train"]
     description: str
@@ -32,6 +33,7 @@ class ExperimentMetadata(BaseModel):
     description: str
     directory_structure: List[str]
     status: str
+    last_updated: Optional[str] = None
 
 class ExperimentManager:
     """
@@ -49,7 +51,7 @@ class ExperimentManager:
         self.experiment_dir = Path(self.training_config.experiments_root) / self.training_config.trainer_name
         self.experiment_dir.mkdir(exist_ok=True)
         self.metadata = self.create_experiment()
-        self.model_config = None
+        self.model_config = self.read_model_config()
         logger.info("Experiment manager initialized at: %s", self.experiment_dir)
 
     def read_model_config(self) -> ModelConfig:
@@ -58,7 +60,7 @@ class ExperimentManager:
         """
         with open(self.experiment_dir / "config.yaml", 'r', encoding='utf-8') as f:
             hyper_params = yaml.safe_load(f)
-            return ModelConfig(**hyper_params)
+            return ModelConfig(parameter=Hyperparameter(**hyper_params))
 
     def create_experiment(self) -> ExperimentMetadata:
         """
@@ -67,7 +69,6 @@ class ExperimentManager:
         Returns:
             Path to experiment directory
         """
-        self.model_config = self.read_model_config()
         # Load metadata if experiment is being resumed
         if self.training_config.training_mode == "resume":
             logger.info("Resuming experiment: %s", self.training_config.trainer_name)
@@ -198,27 +199,27 @@ class ExperimentManager:
         self,
         train_loader,
         val_loader
-    ) -> tuple[WeatherChartModel, WeatherChartTrainer]:
+    ) -> WeatherChartTrainer:
         """Create model and trainer with enhanced configuration"""
 
-        model = WeatherChartModel(self.model_config)
         # Create trainer
         trainer = WeatherChartTrainer(
             config=self.model_config,
-            model=model,
+            model=WeatherChartModel(self.model_config),
             train_dataloader=train_loader,
-            eval_dataloader=val_loader
+            eval_dataloader=val_loader,
+            output_dir=str(self.experiment_dir),  # Convert Path to string
+            label_processor=None  # Will be auto-created in trainer
         )
-        return model, trainer
+        return trainer
 
     def execute(self):
         """Enhanced main training function with experiment management"""
         try:
-            self.create_experiment()
             logger.info("Creating data loaders...")
             train_loader, val_loader, test_loader = create_dataloaders(self.training_config.dataset_root, self.experiment_dir)
             logger.info("Creating model and trainer...")
-            model, trainer = self.create_trainer(train_loader, val_loader)
+            trainer = self.create_trainer(train_loader, val_loader)
 
             if self.training_config.training_mode == "resume":
                 # Resume training from latest checkpoint

@@ -50,12 +50,12 @@ class DatasetReader(Dataset):
         ])
 
         self.df = pd.read_csv(csv_file)
-        logger.info("Loaded %d samples from %s using pandas", len(self.df), csv_file)
+        logger.info("Loaded %d samples from %s", len(self.df), csv_file)
 
         self._preprocess_labels()
 
     def _preprocess_labels(self):
-        """Preprocess label column using pandas operations"""
+        """Preprocess label column operations"""
         def parse_labels(label_str):
             """Parse label string to list"""
             if pd.isna(label_str) or label_str == '':
@@ -69,12 +69,8 @@ class DatasetReader(Dataset):
                 return []
 
         self.df['parsed_labels'] = self.df['label'].apply(parse_labels)
-        if "radar" in self.df['parsed_labels']:
-            suffix = "png"
-        else:
-            suffix = "webp"
         self.df['image_path'] = self.df['index'].apply(
-            lambda idx: os.path.join(self.images_dir, f"{int(float(idx)):04d}.{suffix}")
+            lambda idx: os.path.join(self.images_dir, f"{int(float(idx)):06d}.png")
         )
 
     def __len__(self):
@@ -409,8 +405,6 @@ class DatasetFactory:
 
         try:
             dataset = DatasetReader(csv_file)
-
-            logger.info("Loaded datasets - %s: %d samples", dataset_type, len(dataset))
             return dataset
 
         except Exception as e:
@@ -471,21 +465,18 @@ def create_dataloaders(dataset_root_dir: str, experiment_dir: str) -> tuple[Data
     train_file_path = metadata_dir / "train.csv"
     if train_file_path.exists():
         train_dataset = factory.load_dataset("train")
-        logger.info("Loaded training dataset: %d samples", len(train_dataset))
     else:
         logger.warning("Training dataset not found at: %s", train_file_path)
 
     val_file_path = metadata_dir / "validation.csv"
     if val_file_path.exists():
         val_dataset = factory.load_dataset("validation")
-        logger.info("Loaded validation dataset: %d samples", len(val_dataset))
     else:
         logger.warning("Validation dataset not found at: %s", val_file_path)
 
     test_file_path = metadata_dir / "test.csv"
     if test_file_path.exists():
         test_dataset = factory.load_dataset("test")
-        logger.info("Loaded test dataset: %d samples", len(test_dataset))
     else:
         logger.warning("Test dataset not found at: %s", test_file_path)
 

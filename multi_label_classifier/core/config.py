@@ -193,6 +193,7 @@ class ModelConfig(PretrainedConfig):
 
     def __init__(self,parameter: Hyperparameter, **kwargs):
         self.seed = 473066198
+        self.device = "auto"
         self.cnn_config = CNNconfig(
             cnn_dropout=parameter.cnn_dropout,
             cnn_output_dim=parameter.joint_embedding_dim

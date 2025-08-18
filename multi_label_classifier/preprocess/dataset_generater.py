@@ -3,6 +3,7 @@ Validation and test dataset generate module
 Consider validatation and test a large epoch of data
 """
 
+import os
 import logging
 import random
 from pathlib import Path
@@ -10,7 +11,7 @@ from typing import List, Dict, Tuple, ClassVar
 from enum import Enum
 import pandas as pd
 from pydantic import BaseModel
-from .chart import Chart
+from .chart import Chart, ChartMetadata
 from .chart_enhancer import ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
 from ..settings import CURRENT_DATASET_DIR, GALLERY_DIR
 
@@ -36,10 +37,10 @@ class DatasetMetadata(BaseModel):
     """
     metadata for a batch of data
     """
-    name: DatasetRole
+    role: DatasetRole
     sample_strategy: SampleStrategy
-    source_path: str
-    save_path: str
+    source_path: Path
+    save_path: Path
 
 class SplitConfig(BaseModel):
     """
@@ -54,13 +55,24 @@ class DatasetBuilder:
     """
     builder for a dataset
     """
-    def __init__(self):
-        self.matadata_columns = ["image_path", "label", "en_name", "zh_name", "summary"]
+    def __init__(self, size_list: Dict[DatasetRole, int]):
+        self.matadata_columns = ["label", "en_name", "zh_name", "summary"]
         self.metadata_list: Dict[DatasetRole, pd.DataFrame] = {
             DatasetRole.TRAIN: pd.DataFrame(columns=self.matadata_columns),
             DatasetRole.VALIDATION: pd.DataFrame(columns=self.matadata_columns),
             DatasetRole.TEST: pd.DataFrame(columns=self.matadata_columns),
         }
+        self.index_list: Dict[DatasetRole, List[int]] = self.shuffle_index(size_list)
+
+    def shuffle_index(self, size_list: Dict[DatasetRole, int]) -> Dict[DatasetRole, List[int]]:
+        """
+        shuffle the index of the metadata list
+        """
+        index_list:Dict[DatasetRole, List[int]] = {}
+        for role in size_list.keys():
+            index_list[role] = list(range(size_list[role]))
+            random.shuffle(index_list[role])
+        return index_list
 
     def get_enhancer_config(self, sample_strategy: SampleStrategy) -> EnhancerConfig:
         """
@@ -85,17 +97,26 @@ class DatasetBuilder:
         main function to build a data batch
         """
         enhancer = ChartEnhancer(self.get_enhancer_config(metadata.sample_strategy))
-        images_dir = Path(metadata.save_path)
+        images_dir = metadata.save_path
         images_dir.mkdir(parents=True, exist_ok=True)
 
-        current_metadata_list = pd.DataFrame(columns=self.matadata_columns)
-        preview_length = len(self.metadata_list[metadata.name])
+        preview_length = len(self.metadata_list[metadata.role])
+        current_metadata_list: List[ChartMetadata] = []
         for i, image_file in enumerate(image_files):
-            current_index = preview_length + i
+            current_index = self.index_list[metadata.role][preview_length + i]
             chart = enhancer(Chart(image_file, index=current_index))
-            chart.save(images_dir / f"t{chart.metadata.index:05d}.png")
-            current_metadata_list = current_metadata_list.append(chart.metadata)
-        self.metadata_list[metadata.name] = pd.concat([self.metadata_list[metadata.name], current_metadata_list])
+            chart.save(images_dir / f"{chart['index']:06d}.png")
+            current_metadata_list.append(chart.metadata)
+        self.metadata_list[metadata.role] = pd.concat([self.metadata_list[metadata.role], pd.DataFrame(current_metadata_list)])
+
+    def save_metadata(self, output_dir: Path):
+        """
+        save the metadata to the csv file
+        """
+        meta_dir = output_dir / "metadata"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+        for role in DatasetRole:
+            self.metadata_list[role].to_csv(meta_dir / f"{role.value}.csv", index=False)
 
 class DataSpliter:
     """
@@ -107,7 +128,7 @@ class DataSpliter:
         self.input_dir = Path(GALLERY_DIR)
         self.output_dir = Path(CURRENT_DATASET_DIR)
 
-    def split_images(self, sample_num: int, folder_path: str = "") -> Tuple[int, int, int, List[str]]:
+    def split_images(self, folder_path: str = "") -> Tuple[int, int, int, List[str]]:
         """
         shuffle and split the image files into train, validation and test sets
         """
@@ -115,6 +136,7 @@ class DataSpliter:
         folder = Path(folder_path)
         image_files = [str(f) for f in folder.glob("*.webp")]
         image_files.extend([str(f) for f in folder.glob("*.png")])
+        sample_num = len(image_files)
         if not image_files:
             return -1, -1, -1, []
 
@@ -130,19 +152,41 @@ class DataSpliter:
         folder = Path(source_path)
         return [item.name for item in folder.iterdir() if item.is_dir()]
 
+    def count_images(self, types: List[str]) -> Dict[DatasetRole, int]:
+        """
+        count the images of the types
+        """
+        size_list: Dict[DatasetRole, int] = {
+            DatasetRole.TRAIN: 0,
+            DatasetRole.VALIDATION: 0,
+            DatasetRole.TEST: 0,
+        }
+        for type_name in types:
+            folder = Path(self.input_dir / type_name)
+            image_files = [str(f) for f in folder.glob("*.webp")]
+            image_files.extend([str(f) for f in folder.glob("*.png")])
+            sample_num = len(image_files)
+            train_num = int(sample_num * self.split_config.train_ratio)
+            validation_num = int(sample_num * self.split_config.validation_ratio)
+            size_list[DatasetRole.TRAIN] += train_num
+            size_list[DatasetRole.VALIDATION] += validation_num
+            size_list[DatasetRole.TEST] += sample_num - train_num - validation_num
+        return size_list
+
     split_num: ClassVar[int] = 4
     def split(self):
         """
         split the data into train, validation and test sets and call Migrate to build the data batch
         """
         types = self.get_types(self.input_dir)
-        builder = DatasetBuilder()
+        size_list = self.count_images(types)
+        builder = DatasetBuilder(size_list)
         for type_name in types:
-            train_index, validation_index, test_index, image_files = self.split_images(sample_num=100, folder_path=self.input_dir / type_name)
+            train_index, validation_index, test_index, image_files = self.split_images(folder_path=self.input_dir / type_name)
             if train_index == -1:
                 logger.warning("No image files found in %s", type_name)
                 continue
-            train_list = image_files[train_index:validation_index-1]
+            train_list = image_files[train_index:validation_index]
             tri_list_length = len(train_list) // self.split_num
             for index in range(self.split_num):
                 if index < self.split_num - 1:
@@ -150,28 +194,30 @@ class DataSpliter:
                     end_index = tri_list_length * (index + 1)
                 else:
                     start_index = tri_list_length * index
-                    end_index = len(train_list)
+                    end_index = validation_index
                 builder.migrate(DatasetMetadata(
-                    name=DatasetRole.TRAIN,
+                    role=DatasetRole.TRAIN,
                     sample_strategy=SampleStrategy.RANDOM,
                     source_path=self.input_dir / type_name,
-                    save_path=self.output_dir / "images" / "train" / type_name,
-                ),image_files=train_list[start_index:end_index])
+                    save_path=self.output_dir / "images" / "train",
+                ),image_files=image_files[start_index:end_index])
             logger.info("Migrate %s train data", type_name)
             builder.migrate(DatasetMetadata(
-                name=DatasetRole.VALIDATION,
+                role=DatasetRole.VALIDATION,
                 sample_strategy=SampleStrategy.BALANCED,
                 source_path=self.input_dir / type_name,
-                save_path=self.output_dir / "images" / "validation" / type_name,
-            ),image_files=train_list[validation_index:test_index])
+                save_path=self.output_dir / "images" / "validation",
+            ),image_files=image_files[validation_index:test_index])
             logger.info("Migrate %s validation data", type_name)
             builder.migrate(DatasetMetadata(
-                name=DatasetRole.TEST,
+                role=DatasetRole.TEST,
                 sample_strategy=SampleStrategy.BALANCED,
                 source_path=self.input_dir / type_name,
-                save_path=self.output_dir / "images" / "test" / type_name,
-            ),image_files=train_list[test_index:])
+                save_path=self.output_dir / "images" / "test",
+            ),image_files=image_files[test_index:])
             logger.info("Migrate %s test data", type_name)
+        builder.save_metadata(self.output_dir)
+        logger.info("Successfully migrate dataset")
 
 if __name__ == "__main__":
     spliter = DataSpliter(SplitConfig())

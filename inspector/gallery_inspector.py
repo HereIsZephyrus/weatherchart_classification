@@ -157,7 +157,7 @@ class GalleryInspector:
                 if not file_entry.is_file():
                     continue
                 filename = file_entry.name
-                if not filename.lower().endswith(".webp"):
+                if not filename.lower().endswith(".webp") and not filename.lower().endswith(".png"):
                     continue
                 match = FILENAME_PATTERN.match(filename)
                 if not match:

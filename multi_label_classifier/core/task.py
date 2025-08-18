@@ -6,14 +6,13 @@ import json
 import os
 import random
 import logging
-import ast
-from pathlib import Path
-from typing import List, Dict, Any
+from typing import Tuple
 from enum import Enum
 from pydantic import BaseModel
-import pandas as pd
-from ..utils import Chart, ChartMetadata, ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
-from ..settings import GALLERY_DIR, EPOCH_NUM, SAMPLE_PER_BATCH, BATCH_PER_EPOCH, DATASET_DIR
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from ..preprocess import Chart, ChartMetadata, ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
+from ..settings import EPOCH_NUM, SAMPLE_PER_BATCH, DATASET_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -36,222 +35,151 @@ class BatchMetedata(BaseModel):
     size: int
     status: ProgressStatus
 
-class EpochMetedata(BaseModel):
+class DatasetLoader:
     """
-    metadata for an epoch of data
+    Dataset loader for weather chart classification.
     """
-    epoch_id: int
-    name: str
-    save_path: str
-    status: ProgressStatus
 
-class BatchBuilder:
-    """
-    builder for the data batch
-    """
-    def __init__(self, metadata: BatchMetedata, enhancer_config: EnhancerConfig = EnhancerConfigPresets["None"]):
-        self.metadata = metadata
-        self.enhancer = ChartEnhancer(enhancer_config)
+    def __init__(self, config: ModelConfig):
+        self.config = config
+        self.label_processor = LabelProcessor(vocabulary.token2idx)
 
-    def boostraping(self, sample_num: int, folder_path: str = "") -> List[str]:
+        # Default image transforms
+        self.image_transform = transforms.Compose([
+            transforms.Resize((224, 224)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+        logger.info("Initialized DatasetLoader")
+
+    def load_dataset(self, dataset_path: str) -> Tuple[WeatherChartDataset, WeatherChartDataset]:
         """
-        boostraping sample list
+        Load dataset from path and split into train/val sets.
+        
+        Args:
+            dataset_path: Path to dataset directory
+            
+        Returns:
+            Tuple of (train_dataset, val_dataset)
         """
-        # Get list of image files in the folder
-        folder = Path(folder_path)
-        image_files = [str(f) for f in folder.glob("*.webp")]
-        image_files.extend([str(f) for f in folder.glob("*.png")])
-        if not image_files:
-            return []
-
-        # Bootstrapping
-        sampled_images = random.choices(image_files, k=sample_num)
-        logger.debug("Bootstrap sampling generated %d samples from %s", len(sampled_images), folder_path)
-        return sampled_images
-
-    def select_type(self) -> List[str]:
-        """
-        select the type of the data batch
-        """
-        percentage = self.metadata.role.value[1]
-
-        gallery_path = Path(self.metadata.source_path)
-        type_dirs = [str(d) for d in gallery_path.iterdir() if d.is_dir()]
-        if not type_dirs:
-            logger.warning("No subdirectories found in %s", self.metadata.source_path)
-            return []
-
-        size = int(len(type_dirs) * percentage)
-        selected_types = random.choices(type_dirs, k=size)
-        return selected_types
-
-    def generate_image_dataset(self, image_path_list: List[str]) -> List[ChartMetadata]:
-        """
-        generate the data for a data batch
-        """
-        metadata_list : List[ChartMetadata] = []
-        index_list = list(range(len(image_path_list)))
-        random.shuffle(index_list)
-        for i, image_path in enumerate(image_path_list):
-            index = index_list[i]
-            chart = self.enhancer(Chart(image_path, index=index))
-            chart.save(self.metadata.save_path / "images" / f"{index:04d}.png")
-            metadata_list.append(chart.metadata)
-
-        return metadata_list
-
-    def sample_huggingface_dataset(self, sample_num: int, save_dir: Path, source_dir: str) -> List[ChartMetadata]:
-        """
-        generate the radar data for a data batch
-        """
-        metadata_list : List[ChartMetadata] = []
-
-        # Get list of image files in the source directory
-        source_path = Path(source_dir)
-        images_path = source_path / "images"
-        labels_df = pd.read_csv(
-            source_path / "labels.csv",
-            converters={'feature': lambda x: ast.literal_eval(x) if pd.notna(x) else []}
+        # Load dataset metadata
+        metadata_path = os.path.join(dataset_path, "labels.json")
+        try:
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                all_samples = json.load(f)
+        except Exception as e:
+            logger.error("Error loading metadata from %s: %s", metadata_path, str(e))
+            raise
+            
+        logger.info("Loaded %d samples from metadata", len(all_samples))
+        
+        # Process samples to add image paths
+        processed_samples = []
+        for sample in all_samples:
+            # Create sample with image path
+            processed_sample = {
+                "image_path": os.path.join(dataset_path, "images", f"{sample['index']:04}.webp"),
+                "labels": sample["label"],
+                "index": sample["index"],
+                "en_name": sample["en_name"],
+                "zh_name": sample["zh_name"]
+            }
+            processed_samples.append(processed_sample)
+        
+        # Calculate label frequencies for ordering
+        label_frequencies = {}
+        for sample in processed_samples:
+            for label in sample["labels"]:
+                label_frequencies[label] = label_frequencies.get(label, 0) + 1
+        
+        # Split into train/val
+        random.seed(42)  # For reproducibility
+        random.shuffle(processed_samples)
+        
+        split_idx = int(len(processed_samples) * 0.9)  # 90% train, 10% val
+        train_samples = processed_samples[:split_idx]
+        val_samples = processed_samples[split_idx:]
+        
+        # Create datasets
+        train_dataset = WeatherChartDataset(
+            train_samples,
+            self.label_processor,
+            self.image_transform,
+            order_strategy="frequency",
+            label_frequencies=label_frequencies
         )
-        labels_df = labels_df.sample(n=sample_num)
-
-        save_index = self.metadata.size - 1
-        for row in labels_df.itertuples():
-            image_path = images_path / f"{row.index}.png"
-            chart = self.enhancer(Chart(image_path, index=save_index, info=row))
-            chart.save(save_dir / f"{save_index:04d}.png")
-            metadata_list.append(chart.metadata)
-            save_index -= 1
-
-        return metadata_list
-
-    def build(self) -> Dict[str, Any]:
+        
+        val_dataset = WeatherChartDataset(
+            val_samples,
+            self.label_processor,
+            self.image_transform,
+            order_strategy="fixed"  # Fixed order for validation
+        )
+        
+        logger.info("Split dataset into %d train and %d validation samples", len(train_dataset), len(val_dataset))
+        return train_dataset, val_dataset
+    
+    def create_data_loaders(
+        self,
+        train_dataset: WeatherChartDataset,
+        val_dataset: WeatherChartDataset,
+        batch_size: int = 32,
+        num_workers: int = 4
+    ) -> Tuple[DataLoader, DataLoader]:
         """
-        main function to build a data batch
+        Create data loaders for training and validation.
+        
+        Args:
+            train_dataset: Training dataset
+            val_dataset: Validation dataset
+            batch_size: Batch size
+            num_workers: Number of workers for data loading
+            
+        Returns:
+            Tuple of (train_loader, val_loader)
         """
-        batch_dir = Path(self.metadata.save_path)
-        batch_dir.mkdir(parents=True, exist_ok=True)
-
-        images_dir = batch_dir / "images"
-        images_dir.mkdir(exist_ok=True)
-
-        types = self.select_type()
-        image_num_each_type = int(self.metadata.size / (len(types)))
-
-        sampled_images = []
-        for type_folder in types:
-            type_images = self.boostraping(sample_num=image_num_each_type, folder_path=type_folder)
-            if not type_images:
-                logger.warning("No image files found in %s", type_folder)
-                continue
-            sampled_images.extend(type_images)
-        remaining_images = self.metadata.size - len(sampled_images)
-        ramin_type = random.choice(types)
-        ramin_images = self.boostraping(sample_num=remaining_images, folder_path=ramin_type)
-        sampled_images.extend(ramin_images)
-        ecmwf_labels = self.generate_image_dataset(image_path_list=sampled_images)
-
-        #radar_num = self.metadata.size - len(sampled_images)
-        #radar_labels = self.sample_huggingface_dataset(
-        #    sample_num=radar_num,
-        #    save_dir=images_dir,
-        #    source_dir=RADAR_DIR
-        #)
-        #total_labels = ecmwf_labels
-        return ecmwf_labels
-
-class EpochBuilder:
-    """
-    manager for one epoch of data
-    """
-    def __init__(self, metadata: EpochMetedata):
-        self.metadata = metadata
-        self.batch_metadata_list: List[BatchMetedata] = []
-
-    def generate_epoch_build_task(self) -> None:
-        """
-        generate the dataset build task
-        """
-        self.batch_metadata_list.clear()
-        # generate training batches
-        for i in range(BATCH_PER_EPOCH):
-            name = f"batch_{i:02d}"
-            self.batch_metadata_list.append(
-                BatchMetedata(
-                    batch_id=self.metadata.epoch_id * 100 + i,
-                    name=name,
-                    source_path=GALLERY_DIR,
-                    save_path=f"{self.metadata.save_path}/{name}",
-                    size=SAMPLE_PER_BATCH,
-                    status=ProgressStatus.PENDING,
-                )
-            )
-
-    def build(self) -> None:
-        """
-        main function to build the dataset
-        """
-        self.generate_epoch_build_task()
-        # ensure the output directory exists
-        self.metadata.save_path.mkdir(parents=True, exist_ok=True)
-
-        preset_keys = list(EnhancerConfigPresets.keys())
-        preset_values = list(EnhancerConfigPresets.values())
-        for metadata in self.batch_metadata_list:
-            enhancer_config_index = random.randint(0, len(preset_keys) - 1)
-            if preset_keys[enhancer_config_index] == "None" or \
-               preset_keys[enhancer_config_index] == "ExtremeVariation":
-                # if extreme, roll again to decrease the probability
-                enhancer_config_index = random.randint(0, len(preset_keys) - 1)
-            batch_builder = BatchBuilder(
-                metadata=metadata,
-                enhancer_config=preset_values[enhancer_config_index]
-            )
-            total_labels = batch_builder.build()
-            with open(os.path.join(batch_builder.metadata.save_path, "labels.json"), "w", encoding="utf-8") as f:
-                json.dump(total_labels, f, ensure_ascii=False, indent=2)
-            with open(os.path.join(batch_builder.metadata.save_path, "config.json"), "w", encoding="utf-8") as f:
-                json.dump(batch_builder.enhancer.config.model_dump(), f, ensure_ascii=False, indent=2)
-
-            logger.info("Built batch %s", metadata.name)
-
-        logger.info("All batches built for epoch %s", self.metadata.name)
-
-class TrainingDatasetBuilder:
-    """
-    manager for the dataset
-    """
-    def __init__(self):
-        self.output_dir = Path(DATASET_DIR)
-        self.input_dir = Path(GALLERY_DIR)
-        self.epoch_metadata_list: List[EpochMetedata] = []
-
-    def generate_dataset_build_task(self) -> None:
-        """
-        generate the dataset build task
-        """
-        self.epoch_metadata_list.clear()
-        for i in range(EPOCH_NUM):
-            name = f"epoch_{i:03d}"
-            self.epoch_metadata_list.append(
-                EpochMetedata(
-                    epoch_id=i,
-                    name=name,
-                    save_path=f"{self.output_dir}/{name}",
-                    status=ProgressStatus.PENDING,
-                )
-            )
-
-    def build(self) -> None:
-        """
-        main function to build the dataset
-        """
-        self.generate_dataset_build_task()
-        for metadata in self.epoch_metadata_list:
-            epoch_builder = EpochBuilder(metadata=metadata)
-            epoch_builder.build()
-            with open(os.path.join(epoch_builder.metadata.save_path, "metadata.json"), "w", encoding="utf-8") as f:
-                json.dump(epoch_builder.metadata.model_dump(), f, ensure_ascii=False, indent=2)
-            logger.info("Built epoch %s", metadata.name)
-
-        logger.info("All epochs built")
+        def collate_fn(batch):
+            # Extract components
+            images = torch.stack([item["image"] for item in batch])
+            input_sequences = [item["input_sequence"] for item in batch]
+            multi_hot_vectors = torch.stack([item["multi_hot"] for item in batch])
+            
+            # Pad sequences and create attention masks
+            padded_sequences, attention_masks = self.label_processor.pad_sequences(input_sequences)
+            
+            # Create target sequences for teacher forcing (input shifted by 1)
+            target_sequences = torch.zeros_like(padded_sequences)
+            for i, seq in enumerate(input_sequences):
+                target_seq = seq[1:]  # Remove first token (BOS)
+                target_sequences[i, :len(target_seq)] = target_seq
+            
+            return {
+                "images": images,
+                "input_sequences": padded_sequences,
+                "target_sequences": target_sequences,
+                "attention_masks": attention_masks,
+                "multi_hot_vectors": multi_hot_vectors,
+                "labels": [item["labels"] for item in batch],
+                "image_paths": [item["image_path"] for item in batch]
+            }
+        
+        train_loader = DataLoader(
+            train_dataset,
+            batch_size=batch_size,
+            shuffle=True,
+            num_workers=num_workers,
+            collate_fn=collate_fn,
+            pin_memory=True
+        )
+        
+        val_loader = DataLoader(
+            val_dataset,
+            batch_size=batch_size,
+            shuffle=False,
+            num_workers=num_workers,
+            collate_fn=collate_fn,
+            pin_memory=True
+        )
+        
+        return train_loader, val_loader

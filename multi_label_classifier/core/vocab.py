@@ -6,7 +6,7 @@ import os
 import logging
 from typing import Dict, List
 import pandas as pd
-from inspector import GalleryInspector, GalleryStats
+from ...inspector import GalleryInspector, GalleryStats
 from ..settings import GALLERY_DIR
 
 logger = logging.getLogger(__name__)
@@ -34,8 +34,8 @@ class Vocabulary:
         inspector = GalleryInspector(base_dir)
         self.stats: GalleryStats = inspector.inspect()
         counter: pd.DataFrame = self.count_corpus()
-        self._token_freqs = sorted(counter.items(), key=lambda x: x[1], reverse=True)
-        self.idx2token: List[str] = ['<unk>', '<bos>', '<eos>', '<pad>']
+        self._token_freqs = counter.values.tolist()
+        self.idx2token: List[str] = ['<unk>', '<bos>', '<eos>']
         self.token2idx: Dict[str, int] = {token: idx for idx, token in enumerate(self.idx2token)}
         for token, freq in self._token_freqs:
             if freq < self.min_frequency:
@@ -54,7 +54,7 @@ class Vocabulary:
             kind_list = kinds.split("A")
             for kind in kind_list:
                 frequency[kind] = frequency.get(kind, 0) + kind_stats.image_count
-        corpus = pd.DataFrame(frequency.items(), columns=["kind", "frequency"])
+        corpus = pd.DataFrame(frequency.items(), columns=["kind", "frequency"]).sort_values(by="frequency", ascending=False)
         corpus.to_csv(os.path.join(self.base_dir, "corpus.csv"), index=False)
         logger.info("Corpus counted")
         return corpus
@@ -110,12 +110,5 @@ class Vocabulary:
         End of sentence token
         """
         return 2
-
-    @property
-    def pad(self):
-        """
-        Padding token
-        """
-        return 3
 
 vocabulary = Vocabulary(GALLERY_DIR)

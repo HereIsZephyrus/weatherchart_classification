@@ -60,15 +60,15 @@ class WeatherChartTrainer:
                            if vocabulary.idx2token[i] not in [vocabulary.unk, vocabulary.bos, vocabulary.eos]}
             label_processor = LabelProcessor(label_mapping=label_mapping)
             logger.info("Created label processor with %d labels from vocabulary", len(label_mapping))
-        
+
         self.label_processor = label_processor
-        
+
         # Training state
         self.current_epoch = 0
         self.global_step = 0
         self.best_metric = 0.0
         self.training_stage = TrainingStage.WARMUP
-        
+
         # Early stopping config
         self.no_improvement_count = 0
         self.early_stopping_patience = self.config.validation_config.early_stopping_patience
@@ -229,11 +229,11 @@ class WeatherChartTrainer:
                         logger.info("New best model saved with %s: %.4f", self.config.validation_config.metric_for_best_model, current_metric)
                         self.no_improvement_count = 0
                         is_improved = True
-                    
+
                     if not is_improved:
                         self.no_improvement_count += 1
                         logger.info("No improvement for %d epochs", self.no_improvement_count)
-                        
+
                         # Reach early stopping patience
                         if self.config.validation_config.early_stopping and self.no_improvement_count >= self.early_stopping_patience:
                             logger.info("Early stopping triggered after %d epochs without improvement", self.no_improvement_count)
@@ -351,16 +351,16 @@ class WeatherChartTrainer:
     def _forward_step(self, batch: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """Forward pass for one step."""
         images = batch["images"]
-        
+
         # Process labels to create input sequences for teacher forcing
         input_sequences = None
         attention_mask = None
-        
+
         if "labels" in batch and self.model.training:
             # Convert label names to sequences for teacher forcing
             batch_sequences = []
             max_seq_len = 0
-            
+
             for label_list in batch["labels"]:
                 if label_list:  # Non-empty label list
                     sequence = self.label_processor.create_sequence(label_list)
@@ -371,12 +371,12 @@ class WeatherChartTrainer:
                     sequence = torch.tensor([vocabulary.bos, vocabulary.eos], dtype=torch.long)
                     batch_sequences.append(sequence)
                     max_seq_len = max(max_seq_len, len(sequence))
-            
+
             # Pad sequences to same length
             if batch_sequences:
                 padded_sequences = []
                 attention_masks = []
-                
+
                 for sequence in batch_sequences:
                     seq_len = len(sequence)
                     if seq_len < max_seq_len:
@@ -387,16 +387,16 @@ class WeatherChartTrainer:
                         ])
                     else:
                         padded_seq = sequence
-                    
+
                     # Create attention mask (1 for real tokens, 0 for padding)
                     attention_mask_seq = torch.cat([
                         torch.ones(seq_len, dtype=torch.long),
                         torch.zeros(max_seq_len - seq_len, dtype=torch.long)
                     ])
-                    
+
                     padded_sequences.append(padded_seq)
                     attention_masks.append(attention_mask_seq)
-                
+
                 input_sequences = torch.stack(padded_sequences).to(self.device)
                 attention_mask = torch.stack(attention_masks).to(self.device)
 
@@ -404,12 +404,12 @@ class WeatherChartTrainer:
         if input_sequences is not None and self.model.training:
             # Apply teacher forcing ratio
             teacher_forcing_ratio = self.teacher_forcing_scheduler.get_ratio(self.global_step)
-            
+
             # Implement scheduled sampling
             use_teacher_forcing = True
-            if teacher_forcing_ratio < 1.0:
+            if teacher_forcing_ratio < 1.0: # determine whether to use teacher forcing
                 use_teacher_forcing = torch.rand(1).item() < teacher_forcing_ratio
-            
+
             if use_teacher_forcing:
                 outputs = self.model(
                     images=images,
@@ -438,13 +438,13 @@ class WeatherChartTrainer:
         target_sequences = None
         target_labels = None
         sequence_mask = None
-        
+
         if "labels" in batch:
             # Create target sequences (shifted input sequences for next token prediction)
             batch_target_sequences = []
             batch_target_labels = []
             max_seq_len = 0
-            
+
             for label_list in batch["labels"]:
                 if label_list:  # Non-empty label list
                     # Create input sequence with BOS/EOS
@@ -453,7 +453,7 @@ class WeatherChartTrainer:
                     target_seq = sequence[1:]  # Remove BOS, keep EOS
                     batch_target_sequences.append(target_seq)
                     max_seq_len = max(max_seq_len, len(target_seq))
-                    
+
                     # Create binary label vector for parallel prediction
                     label_vector = torch.zeros(self.label_processor.num_labels)
                     for label_name in label_list:
@@ -467,16 +467,16 @@ class WeatherChartTrainer:
                     target_seq = torch.tensor([vocabulary.eos], dtype=torch.long)
                     batch_target_sequences.append(target_seq)
                     max_seq_len = max(max_seq_len, len(target_seq))
-                    
+
                     # Empty label vector
                     label_vector = torch.zeros(self.label_processor.num_labels)
                     batch_target_labels.append(label_vector)
-            
+
             # Pad target sequences
             if batch_target_sequences:
                 padded_target_sequences = []
                 attention_masks = []
-                
+
                 for target_seq in batch_target_sequences:
                     seq_len = len(target_seq)
                     if seq_len < max_seq_len:
@@ -487,16 +487,16 @@ class WeatherChartTrainer:
                         ])
                     else:
                         padded_seq = target_seq
-                    
+
                     # Create sequence mask (1 for real tokens, 0 for padding)
                     mask = torch.cat([
                         torch.ones(seq_len, dtype=torch.long),
                         torch.zeros(max_seq_len - seq_len, dtype=torch.long)
                     ])
-                    
+
                     padded_target_sequences.append(padded_seq)
                     attention_masks.append(mask)
-                
+
                 target_sequences = torch.stack(padded_target_sequences).to(self.device)
                 sequence_mask = torch.stack(attention_masks).to(self.device)
                 target_labels = torch.stack(batch_target_labels).to(self.device)
@@ -535,7 +535,7 @@ class WeatherChartTrainer:
                 # Collect predictions for metrics
                 if "parallel_logits" in outputs and "labels" in batch:
                     predictions = torch.sigmoid(outputs["parallel_logits"])
-                    
+
                     # Create target labels from batch labels
                     batch_target_labels = []
                     for label_list in batch["labels"]:
@@ -546,7 +546,7 @@ class WeatherChartTrainer:
                                 if label_idx < len(label_vector):
                                     label_vector[label_idx] = 1.0
                         batch_target_labels.append(label_vector)
-                    
+
                     if batch_target_labels:
                         targets = torch.stack(batch_target_labels).to(self.device)
                         all_predictions.append(predictions.cpu().numpy())

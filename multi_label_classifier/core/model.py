@@ -112,8 +112,8 @@ class RNNDecoder(nn.Module):
 
         # Joint feature fusion layers
         self.feature_fusion = nn.Linear(
-            config.rnn_hidden_dim + cnn_feature_dim,
-            config.rnn_input_dim
+            config.rnn_hidden_dim + config.rnn_input_dim,
+            cnn_feature_dim
         )
 
         # Attention mechanism for coverage

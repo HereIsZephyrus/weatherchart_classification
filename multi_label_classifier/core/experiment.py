@@ -56,7 +56,7 @@ class ExperimentManager:
         """
         Read model configuration from model_config.json
         """
-        with open(self.experiment_dir / "model_config.yaml", 'r', encoding='utf-8') as f:
+        with open(self.experiment_dir / "config.yaml", 'r', encoding='utf-8') as f:
             hyper_params = yaml.safe_load(f)
             return ModelConfig(**hyper_params)
 

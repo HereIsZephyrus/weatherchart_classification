@@ -3,7 +3,6 @@ Validation and test dataset generate module
 Consider validatation and test a large epoch of data
 """
 
-import os
 import logging
 import random
 from pathlib import Path
@@ -13,7 +12,8 @@ import pandas as pd
 from pydantic import BaseModel
 from .chart import Chart, ChartMetadata
 from .chart_enhancer import ChartEnhancer, EnhancerConfig, EnhancerConfigPresets
-from ..settings import CURRENT_DATASET_DIR, GALLERY_DIR
+from ..settings import CURRENT_DATASET_DIR
+from ...constants import GALLERY_DIR
 
 logger = logging.getLogger(__name__)
 

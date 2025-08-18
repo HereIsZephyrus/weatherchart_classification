@@ -11,7 +11,7 @@ import logging
 import random
 from PIL import Image
 from pydantic import BaseModel
-from ..settings import GALLERY_MAPPING_BILINGUAL_PATH
+from ...constants import GALLERY_MAPPING_BILINGUAL_PATH
 from pandas import Series
 logger = logging.getLogger(__name__)
 

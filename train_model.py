@@ -7,9 +7,14 @@ Usage:
 """
 import os
 import logging
-from multi_label_classifier.core import ExperimentManager, TrainingConfig
-from multi_label_classifier.preprocess import DataSpliter, SplitConfig
-from multi_label_classifier import CURRENT_DATASET_DIR, MULTI_LABEL_EXPERIMENTS_DIR
+from .multi_label_classifier import(
+    ExperimentManager,
+    TrainingConfig,
+    DataSpliter,
+    SplitConfig,
+    CURRENT_DATASET_DIR
+)
+from .constants import MULTI_LABEL_EXPERIMENTS_DIR
 
 config = TrainingConfig(
     trainer_name="classifier_v1",

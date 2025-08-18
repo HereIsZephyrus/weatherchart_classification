@@ -29,7 +29,7 @@ class TrainingStage(Enum):
     """
     WARMUP = "warmup"
     FINE_TUNE = "finetune"
-    
+
 class WeatherChartTrainer:
     """
     Trainer for CNN-RNN unified framework with two-stage training strategy.

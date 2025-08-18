@@ -459,3 +459,65 @@ class DatasetFactory:
             experiment_dir=experiment_dir,
             save_frequency=save_frequency
         )
+
+def create_dataloaders(dataset_root_dir: str, experiment_dir: str) -> tuple[DatasetLoader, DatasetLoader, DatasetLoader]:
+    """Create enhanced data loaders with state tracking"""
+    factory = DatasetFactory(dataset_base_path=dataset_root_dir)
+    train_dataset = None
+    val_dataset = None
+    test_dataset = None
+
+    metadata_dir = Path(dataset_root_dir) / "metadata"
+    train_file_path = metadata_dir / "train.csv"
+    if train_file_path.exists():
+        train_dataset = factory.load_dataset("train")
+        logger.info("Loaded training dataset: %d samples", len(train_dataset))
+    else:
+        logger.warning("Training dataset not found at: %s", train_file_path)
+
+    val_file_path = metadata_dir / "validation.csv"
+    if val_file_path.exists():
+        val_dataset = factory.load_dataset("validation")
+        logger.info("Loaded validation dataset: %d samples", len(val_dataset))
+    else:
+        logger.warning("Validation dataset not found at: %s", val_file_path)
+
+    test_file_path = metadata_dir / "test.csv"
+    if test_file_path.exists():
+        test_dataset = factory.load_dataset("test")
+        logger.info("Loaded test dataset: %d samples", len(test_dataset))
+    else:
+        logger.warning("Test dataset not found at: %s", test_file_path)
+
+    train_loader = None
+    val_loader = None
+    test_loader = None
+
+    if train_dataset:
+        train_loader = factory.create_dataloader(
+            dataset=train_dataset,
+            batch_size=SAMPLE_PER_BATCH,
+            num_workers=NUM_WORKERS,
+            experiment_dir=experiment_dir,
+            save_frequency=SAVE_FREQUENCY
+        )
+
+    if val_dataset:
+        val_loader = factory.create_dataloader(
+            dataset=val_dataset,
+            batch_size=SAMPLE_PER_BATCH,
+            num_workers=NUM_WORKERS,
+            experiment_dir=experiment_dir,
+            save_frequency=SAVE_FREQUENCY
+        )
+
+    if test_dataset:
+        test_loader = factory.create_dataloader(
+            dataset=test_dataset,
+            batch_size=SAMPLE_PER_BATCH,
+            num_workers=NUM_WORKERS,
+            experiment_dir=experiment_dir,
+            save_frequency=SAVE_FREQUENCY
+        )
+
+    return train_loader, val_loader, test_loader

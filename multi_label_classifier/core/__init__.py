@@ -5,7 +5,8 @@ from .config import ModelConfig, Hyperparameter
 from .dataset import WeatherChartDataset, DatasetLoader
 from .model import WeatherChartModel
 from .trainer import WeatherChartTrainer
-from .task import TrainingDatasetBuilder, EpochBuilder, BatchBuilder
+from .experiment_manager import ExperimentManager, TrainingConfig
+from .dataset import DatasetFactory
 
 __init__ = [
     "ModelConfig",
@@ -14,7 +15,7 @@ __init__ = [
     "DatasetLoader",
     "WeatherChartModel",
     "WeatherChartTrainer",
-    "TrainingDatasetBuilder",
-    "EpochBuilder",
-    "BatchBuilder",
+    "ExperimentManager",
+    "TrainingConfig",
+    "DatasetFactory",
 ]

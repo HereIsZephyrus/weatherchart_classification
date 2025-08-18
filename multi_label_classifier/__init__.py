@@ -1,6 +1,8 @@
 """multi-label classifier package"""
 
-__all__ = ["core", "preprocess"]
+from .settings import CURRENT_DATASET_DIR
+
+__all__ = ["core", "preprocess", "CURRENT_DATASET_DIR"]
 
 # 延迟导入子包，仅在外部代码实际引用时才加载
 def __getattr__(name):

@@ -182,8 +182,8 @@ class TrainingState:
             self.start_time = self.epoch_start_time
 
         logger.info("="*60)
-        logger.info("Starting Epoch %d/%d", epoch + 1, EPOCH_NUM)
-        logger.info("Total batches in epoch: %d", total_batches)
+        logger.info("Starting Epoch %d/%d", self.current_epoch + 1, EPOCH_NUM)
+        logger.info("Total batches in epoch: %d", self.total_batches)
         logger.info("="*60)
 
     def log_batch_progress(self, batch_idx: int, batch_loss: float, lr: float = None):
@@ -257,9 +257,7 @@ class DatasetLoader(DataLoader):
     def __init__(
         self,
         dataset,
-        epochs: int = EPOCH_NUM,
         experiment_dir: Optional[str] = None,
-        save_frequency: int = 5,  # Save state every N epochs
         **kwargs
     ):
         """
@@ -273,8 +271,6 @@ class DatasetLoader(DataLoader):
             **kwargs: Additional arguments for DataLoader
         """
         super().__init__(dataset, **kwargs)
-        self.epochs = epochs
-        self.save_frequency = save_frequency
 
         # Setup training state tracking
         if experiment_dir:
@@ -285,44 +281,6 @@ class DatasetLoader(DataLoader):
             self.has_state_tracking = False
             logger.warning("No experiment_dir provided, state tracking disabled")
 
-    def __iter__(self):
-        """Enhanced iteration with state tracking and checkpointing"""
-
-        # Load previous state if available
-        if self.has_state_tracking:
-            self.state.load_state()  # Load state but don't need to store return value
-            start_epoch = self.state.current_epoch
-        else:
-            start_epoch = 0
-
-        for epoch in range(start_epoch, self.epochs):
-            # Start epoch logging
-            if self.has_state_tracking:
-                total_batches = len(self)
-                self.state.log_epoch_start(epoch, total_batches)
-            else:
-                logger.info("Starting epoch %d/%d", epoch + 1, self.epochs)
-
-            # Get iterator for current epoch
-            epoch_iterator = super().__iter__()
-
-            batch_idx = 0
-            for batch in epoch_iterator:
-                # Add batch metadata
-                if isinstance(batch, dict):
-                    batch['epoch'] = epoch
-                    batch['batch_idx'] = batch_idx
-                    batch['global_step'] = epoch * len(self) + batch_idx
-
-                yield batch
-                batch_idx += 1
-
-            # End epoch logging and save checkpoint
-            if self.has_state_tracking:
-                # Save checkpoint periodically
-                if (epoch + 1) % self.save_frequency == 0:
-                    self.save_checkpoint(epoch)
-
     def log_batch_metrics(self, batch_idx: int, loss: float, lr: float = None):
         """Log batch-level metrics"""
         if self.has_state_tracking:
@@ -332,40 +290,6 @@ class DatasetLoader(DataLoader):
         """Log epoch-level metrics"""
         if self.has_state_tracking:
             self.state.log_epoch_end(metrics)
-
-    def save_checkpoint(self, epoch: int, additional_data: Optional[Dict[str, Any]] = None):
-        """Save training checkpoint"""
-        if self.has_state_tracking:
-            checkpoint_data = {
-                "epoch": epoch,
-                "dataset_info": {
-                    "total_samples": len(self.dataset),
-                    "batch_size": self.batch_size,
-                    "num_workers": self.num_workers
-                }
-            }
-            if additional_data:
-                checkpoint_data.update(additional_data)
-
-            self.state.save_state(checkpoint_data)
-            logger.info("Checkpoint saved at epoch %d", epoch + 1)
-
-    def get_training_summary(self) -> Dict[str, Any]:
-        """Get comprehensive training summary"""
-        if not self.has_state_tracking:
-            return {"error": "No state tracking available"}
-
-        total_time = time.time() - self.state.start_time if self.state.start_time else 0
-
-        return {
-            "total_epochs": self.epochs,
-            "completed_epochs": self.state.current_epoch + 1,
-            "total_time_seconds": total_time,
-            "total_time_formatted": f"{int(total_time//3600):02d}:{int((total_time%3600)//60):02d}:{int(total_time%60):02d}",
-            "avg_epoch_time": total_time / max(1, self.state.current_epoch + 1),
-            "best_metrics": self.state.best_metrics,
-            "recent_metrics": self.state.epoch_metrics[-5:] if self.state.epoch_metrics else []
-        }
 
     def __repr__(self) -> str:
         if self.has_state_tracking:
@@ -410,7 +334,6 @@ class DatasetFactory:
         batch_size: int = SAMPLE_PER_BATCH,
         num_workers: int = NUM_WORKERS,
         experiment_dir: Optional[str] = None,
-        save_frequency: int = SAVE_FREQUENCY
     ) -> DatasetLoader:
         """
         Create PyTorch DataLoaders for training, validation and test datasets.
@@ -442,9 +365,7 @@ class DatasetFactory:
             num_workers=num_workers,
             collate_fn=collate_fn,
             pin_memory=True,
-            epochs=EPOCH_NUM,
             experiment_dir=experiment_dir,
-            save_frequency=save_frequency
         )
 
 def create_dataloaders(dataset_root_dir: str, experiment_dir: str) -> tuple[DatasetLoader, DatasetLoader, DatasetLoader]:
@@ -483,7 +404,6 @@ def create_dataloaders(dataset_root_dir: str, experiment_dir: str) -> tuple[Data
             batch_size=SAMPLE_PER_BATCH,
             num_workers=NUM_WORKERS,
             experiment_dir=experiment_dir,
-            save_frequency=SAVE_FREQUENCY
         )
 
     if val_dataset:
@@ -492,7 +412,6 @@ def create_dataloaders(dataset_root_dir: str, experiment_dir: str) -> tuple[Data
             batch_size=SAMPLE_PER_BATCH,
             num_workers=NUM_WORKERS,
             experiment_dir=experiment_dir,
-            save_frequency=SAVE_FREQUENCY
         )
 
     if test_dataset:
@@ -501,7 +420,6 @@ def create_dataloaders(dataset_root_dir: str, experiment_dir: str) -> tuple[Data
             batch_size=SAMPLE_PER_BATCH,
             num_workers=NUM_WORKERS,
             experiment_dir=experiment_dir,
-            save_frequency=SAVE_FREQUENCY
         )
 
     return train_loader, val_loader, test_loader

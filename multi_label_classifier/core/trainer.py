@@ -55,7 +55,7 @@ class WeatherChartTrainer:
         # Initialize label processor if not provided
         if label_processor is None:
             # Create label mapping from vocabulary
-            label_mapping = {vocabulary.idx2token[i]: i for i in range(len(vocabulary.idx2token)) 
+            label_mapping = {vocabulary.idx2token[i]: i for i in range(len(vocabulary.idx2token))
                            if vocabulary.idx2token[i] not in [vocabulary.unk, vocabulary.bos, vocabulary.eos]}
             label_processor = LabelProcessor(label_mapping=label_mapping)
             logger.info("Created label processor with %d labels from vocabulary", len(label_mapping))
@@ -261,9 +261,9 @@ class WeatherChartTrainer:
         except Exception as e:
             logger.error("Training failed with error: %s", e)
             raise
-        #finally:
+        finally:
             # Save final model
-        #    self._save_model("final_model")
+            self._save_model("final_model")
 
         logger.info("Training completed")
 
@@ -285,7 +285,7 @@ class WeatherChartTrainer:
             desc=f"Epoch {self.current_epoch} ({self.training_stage})",
             leave=False
         )
-
+        
         for batch in pbar:
             # Move batch to device
             batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v
@@ -326,7 +326,6 @@ class WeatherChartTrainer:
 
             # Global step tracking
             self.global_step += 1
-            self.global_step = self.global_step
 
             # Log step metrics
             if self.global_step % 100 == 0:
@@ -377,7 +376,7 @@ class WeatherChartTrainer:
                     if len(sequence) < max_seq_len:
                         # Pad with UNK tokens
                         padded_seq = torch.cat([
-                            sequence, 
+                            sequence,
                             torch.full((max_seq_len - len(sequence),), vocabulary.unk, dtype=torch.long)
                         ])
                     else:
@@ -467,7 +466,7 @@ class WeatherChartTrainer:
                     if seq_len < max_seq_len:
                         # Pad with UNK tokens
                         padded_seq = torch.cat([
-                            target_seq, 
+                            target_seq,
                             torch.full((max_seq_len - seq_len,), vocabulary.unk, dtype=torch.long)
                         ])
                     else:
@@ -488,7 +487,7 @@ class WeatherChartTrainer:
         else:
             logger.warning("No labels provided for training")
             return {}
-        
+
         return self.loss_calculator.calculate_loss(
             sequential_logits=sequential_logits,
             parallel_logits=parallel_logits,

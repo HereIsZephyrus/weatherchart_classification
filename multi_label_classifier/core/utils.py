@@ -134,7 +134,7 @@ class LabelProcessor:
         return multi_hot
 
     def pad_sequences(
-        self, 
+        self,
         sequences: List[torch.Tensor],
         max_length: Optional[int] = None
     ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -165,8 +165,8 @@ class LabelProcessor:
             else:
                 # Pad with PAD token
                 padding = torch.full(
-                    (max_length - seq_len,), 
-                    vocabulary.unk, 
+                    (max_length - seq_len,),
+                    vocabulary.unk,
                     dtype=torch.long
                 )
                 padded_seq = torch.cat([seq, padding])
@@ -392,7 +392,7 @@ class LossCalculator:
 
                 if self.use_focal_loss:
                     sequence_loss = self.focal_loss(
-                        masked_logits, 
+                        masked_logits,
                         masked_targets,
                         self.focal_alpha,
                         self.focal_gamma
@@ -407,14 +407,14 @@ class LossCalculator:
             # Use vocabulary.unk as ignore index for padding
             if self.use_focal_loss:
                 sequence_loss = self.focal_loss(
-                    sequential_logits_flat, 
+                    sequential_logits_flat,
                     target_sequence_flat,
                     self.focal_alpha,
                     self.focal_gamma
                 )
             else:
                 sequence_loss = F.cross_entropy(
-                    sequential_logits_flat, 
+                    sequential_logits_flat,
                     target_sequence_flat,
                     ignore_index=vocabulary.unk  # Ignore padding tokens
                 )

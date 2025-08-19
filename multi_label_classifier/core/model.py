@@ -11,6 +11,7 @@ from typing import Optional, Dict
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.ao.quantization import QuantStub, DeQuantStub
 from transformers import PreTrainedModel
 from torchvision.models import resnet50, ResNet50_Weights
 from .config import ModelConfig, CNNconfig, RNNconfig
@@ -23,15 +24,22 @@ class CNNEncoder(nn.Module):
     """
     CNN encoder using ResNet-50 with ImageNet pretraining.
     Outputs global features through Global Average Pooling.
+    Supports 8-bit quantization for reduced memory and faster inference.
     """
 
     def __init__(self, config: CNNconfig):
         super().__init__()
         self.config = config
 
+        # Initialize ResNet backbone
         self.backbone = resnet50(weights=ResNet50_Weights.DEFAULT)
         # Remove final classification layer
         self.backbone = nn.Sequential(*list(self.backbone.children())[:-1])
+
+        # Quantization stubs
+        self.quant = QuantStub()
+        self.dequant = DeQuantStub()
+
         self.dropout = nn.Dropout(config.cnn_dropout)
 
         # Feature projection to joint embedding space
@@ -52,9 +60,15 @@ class CNNEncoder(nn.Module):
         Returns:
             Projected features [batch_size, joint_embedding_dim]
         """
+        # Quantize input
+        x = self.quant(images)
+
         # Extract features through ResNet backbone
-        features = self.backbone(images)  # [batch_size, 2048, 1, 1]
+        features = self.backbone(x)  # [batch_size, 2048, 1, 1]
         features = features.squeeze(-1).squeeze(-1)  # [batch_size, 2048]
+
+        # Dequantize before dropout and projection
+        features = self.dequant(features)
 
         # Apply dropout and projection
         features = self.dropout(features)
@@ -62,19 +76,112 @@ class CNNEncoder(nn.Module):
 
         return projected_features
 
+    def prepare_for_quantization(self):
+        """
+        Prepare the ResNet50 backbone for quantization while preserving pretrained weights.
+        """
+        # Use qnnpack backend for better mobile/CPU performance
+        backend = 'qnnpack' if torch.backends.quantized.engine == 'qnnpack' else 'fbgemm'
+        qconfig = torch.quantization.get_default_qconfig(backend)
+
+        # Set qconfig for the entire backbone
+        self.backbone.qconfig = qconfig
+
+        # Manually fuse layers in ResNet50 for better quantization
+        # ResNet50 structure: conv1, bn1, relu -> layer1,2,3,4 -> avgpool
+        self._fuse_resnet_layers()
+
+        # Set qconfig for feature projection
+        self.feature_projection.qconfig = qconfig
+
+    def _fuse_resnet_layers(self):
+        """
+        Fuse Conv-BN-ReLU layers in ResNet50 for quantization.
+        This preserves the pretrained weights while enabling quantization.
+        """
+        # Get the original ResNet model from backbone
+        if hasattr(self.backbone, '0'):  # Sequential wrapper
+            resnet = self.backbone[0] if len(self.backbone) == 1 else self.backbone
+        else:
+            resnet = self.backbone
+
+        # Fuse initial conv-bn-relu block
+        if hasattr(resnet, 'conv1') and hasattr(resnet, 'bn1'):
+            torch.quantization.fuse_modules(
+                resnet,
+                [['conv1', 'bn1', 'relu']],
+                inplace=True
+            )
+
+        # Fuse layers in each residual block
+        for layer_name in ['layer1', 'layer2', 'layer3', 'layer4']:
+            if hasattr(resnet, layer_name):
+                layer = getattr(resnet, layer_name)
+                self._fuse_residual_blocks(layer)
+
+    def _fuse_residual_blocks(self, layer):
+        """
+        Fuse Conv-BN-ReLU in residual blocks.
+        """
+        for i, block in enumerate(layer):
+            # BasicBlock or Bottleneck block
+            if hasattr(block, 'conv1') and hasattr(block, 'bn1'):
+                # Fuse conv1-bn1-relu
+                torch.quantization.fuse_modules(
+                    block,
+                    [['conv1', 'bn1', 'relu']],
+                    inplace=True
+                )
+
+            if hasattr(block, 'conv2') and hasattr(block, 'bn2'):
+                # For Bottleneck: fuse conv2-bn2-relu
+                if hasattr(block, 'relu'):
+                    torch.quantization.fuse_modules(
+                        block,
+                        [['conv2', 'bn2', 'relu']],
+                        inplace=True
+                    )
+                else:
+                    # For BasicBlock: fuse conv2-bn2 (no relu after conv2)
+                    torch.quantization.fuse_modules(
+                        block,
+                        [['conv2', 'bn2']],
+                        inplace=True
+                    )
+
+            # For Bottleneck blocks, also fuse conv3-bn3
+            if hasattr(block, 'conv3') and hasattr(block, 'bn3'):
+                torch.quantization.fuse_modules(
+                    block,
+                    [['conv3', 'bn3']],
+                    inplace=True
+                )
+
+            # Fuse downsample layers if present
+            if hasattr(block, 'downsample') and block.downsample is not None:
+                if len(block.downsample) >= 2:
+                    torch.quantization.fuse_modules(
+                        block.downsample,
+                        [['0', '1']],  # conv, bn
+                        inplace=True
+                    )
 
 # LabelEmbedding class removed - now handled inside RNNDecoder
-
 class RNNDecoder(nn.Module):
     def __init__(self, config: RNNconfig, img_feat_dim: int):
         """
-        Initialize RNN decoder.
+        Initialize RNN decoder with quantization support.
 
         Args:
             config: RNN configuration parameters
             img_feat_dim: Dimension of image features from CNN encoder
         """
         super(RNNDecoder, self).__init__()
+
+        # Quantization stubs
+        self.quant = QuantStub()
+        self.dequant = DeQuantStub()
+
         # Label embedding matrix U_l (Eq. 2): Convert one-hot labels to low-dim embeddings
         self.label_embedding = nn.Embedding(
             num_embeddings=len(vocabulary),
@@ -106,7 +213,7 @@ class RNNDecoder(nn.Module):
 
     def forward(self, prev_label_idx, prev_hidden, img_feat):
         """
-        Forward pass for a single time step.
+        Forward pass for a single time step with quantization support.
 
         Args:
             prev_label_idx: Previous predicted label indices [batch_size]
@@ -117,8 +224,13 @@ class RNNDecoder(nn.Module):
             current_score: Current label scores s(t) [batch_size, num_labels]
             current_hidden: Current hidden state r(t) [batch_size, hidden_dim]
         """
+        # Quantize inputs
+        prev_hidden = self.quant(prev_hidden)
+        img_feat = self.quant(img_feat)
+
         # 1. Compute label embedding w_k(t) (Eq. 2)
         w_k = self.label_embedding(prev_label_idx)  # [batch_size, embed_dim]
+        w_k = self.quant(w_k)
 
         # 2. LSTM gate computations (Eq. 3.1)
         # Forget gate
@@ -143,7 +255,30 @@ class RNNDecoder(nn.Module):
         # Note: label_embedding.weight is U_l, transposed for dot product
         current_score = torch.matmul(x_t_proj, self.label_embedding.weight.t())  # (batch_size, num_labels)
 
+        # Dequantize outputs
+        current_score = self.dequant(current_score)
+        current_hidden = self.dequant(current_hidden)
+
         return current_score, current_hidden
+
+    def prepare_for_quantization(self):
+        """
+        Prepare the model for quantization by setting qconfig for all linear layers.
+        """
+        qconfig = torch.quantization.get_default_qconfig('fbgemm')
+
+        # Set qconfig for all linear layers
+        self.f_gate_r.qconfig = qconfig
+        self.f_gate_w.qconfig = qconfig
+        self.i_gate_r.qconfig = qconfig
+        self.i_gate_w.qconfig = qconfig
+        self.candidate_r.qconfig = qconfig
+        self.candidate_w.qconfig = qconfig
+        self.o_gate_r.qconfig = qconfig
+        self.o_gate_w.qconfig = qconfig
+        self.proj_o.qconfig = qconfig
+        self.proj_img.qconfig = qconfig
+        self.label_embedding.qconfig = qconfig
 
     def compute_loss(self, score, target_label):
         return F.cross_entropy(score, target_label)
@@ -152,11 +287,16 @@ class ParallelPredictionHead(nn.Module):
     """
     Parallel prediction head for direct multi-hot vector prediction.
     Sequential prediction is now handled directly by RNNDecoder.
+    Supports 8-bit quantization for reduced memory and faster inference.
     """
 
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
+
+        # Quantization stubs
+        self.quant = QuantStub()
+        self.dequant = DeQuantStub()
 
         # Parallel BCE prediction head
         self.parallel_head = nn.Linear(
@@ -167,11 +307,11 @@ class ParallelPredictionHead(nn.Module):
         # Dropout for regularization
         self.dropout = nn.Dropout(config.rnn_config.rnn_dropout)
 
-        logger.info("Initialized parallel prediction head")
+        logger.info("Initialized parallel prediction head with quantization support")
 
     def forward(self, image_features: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through parallel prediction head.
+        Forward pass through parallel prediction head with quantization support.
 
         Args:
             image_features: Image features [batch_size, joint_embedding_dim]
@@ -179,8 +319,24 @@ class ParallelPredictionHead(nn.Module):
         Returns:
             parallel_logits: Parallel prediction logits [batch_size, vocab_size]
         """
-        parallel_logits = self.parallel_head(self.dropout(image_features))
+        # Quantize input
+        x = self.quant(image_features)
+
+        # Apply dropout and prediction head
+        x = self.dropout(x)
+        parallel_logits = self.parallel_head(x)
+
+        # Dequantize output
+        parallel_logits = self.dequant(parallel_logits)
+
         return parallel_logits
+
+    def prepare_for_quantization(self):
+        """
+        Prepare the model for quantization by setting qconfig.
+        """
+        # Set qconfig for linear layer
+        self.parallel_head.qconfig = torch.quantization.get_default_qconfig('fbgemm')
 
 
 class WeatherChartModel(PreTrainedModel):
@@ -190,6 +346,8 @@ class WeatherChartModel(PreTrainedModel):
     This model implements the architecture described in docs/train.md section 3.2,
     combining CNN feature extraction with RNN sequence modeling for weather element
     prediction with label dependency modeling.
+
+    Supports 8-bit quantization for reduced memory and faster inference.
     """
 
     config_class = ModelConfig
@@ -206,7 +364,11 @@ class WeatherChartModel(PreTrainedModel):
         # Initialize weights
         self.init_weights()
 
-        logger.info("Initialized WeatherChartModel with CNN-RNN unified framework")
+        # Note: Quantization should be done after training/loading pretrained weights
+        # Don't quantize during initialization to preserve pretrained weights
+        self._quantization_prepared = False
+
+        logger.info("Initialized WeatherChartModel with CNN-RNN unified framework and quantization support")
 
     def get_position_embeddings(self):
         """
@@ -214,13 +376,6 @@ class WeatherChartModel(PreTrainedModel):
         Required by PreTrainedModel abstract method.
         """
         return None
-
-    def resize_position_embeddings(self, new_num_position_embeddings: int):
-        """
-        No-op since this model doesn't use position embeddings.
-        Required by PreTrainedModel abstract method.
-        """
-        pass
 
     def init_weights(self):
         """Initialize model weights."""
@@ -337,15 +492,15 @@ class WeatherChartModel(PreTrainedModel):
         # Initialize beam search
         # Start with BOS token for all beams
         beam_sequences = torch.full(
-            (batch_size, beam_width, 1), 
-            vocabulary.bos, 
-            dtype=torch.long, 
+            (batch_size, beam_width, 1),
+            vocabulary.bos,
+            dtype=torch.long,
             device=device
         )  # [B, K, 1]
 
         # Initialize hidden states for each beam
         beam_hiddens = torch.zeros(
-            batch_size, beam_width, self.config.rnn_config.rnn_hidden_dim, 
+            batch_size, beam_width, self.config.rnn_config.rnn_hidden_dim,
             device=device
         )  # [B, K, hidden_dim]
 
@@ -481,3 +636,116 @@ class WeatherChartModel(PreTrainedModel):
         for param in self.cnn_encoder.parameters():
             param.requires_grad = True
         logger.info("Unfrozen CNN encoder parameters")
+
+    def prepare_for_quantization(self):
+        """
+        Prepare the model for quantization, specifically handling pretrained ResNet50.
+        This should be called after loading pretrained weights but before quantization.
+        """
+        if not self.config.quantization_config.enable_quantization:
+            return
+
+        if self._quantization_prepared:
+            logger.warning("Model already prepared for quantization")
+            return
+
+        logger.info("Preparing pretrained model for quantization...")
+
+        # Choose backend based on deployment target
+        backend = 'qnnpack' if torch.backends.quantized.engine == 'qnnpack' else 'fbgemm'
+
+        # Set quantization scheme
+        if self.config.quantization_config.quantization_scheme == "symmetric":
+            qconfig = torch.quantization.get_default_qconfig(backend)
+        else:  # asymmetric
+            qconfig = torch.quantization.QConfig(
+                activation=torch.quantization.MinMaxObserver.with_args(
+                    dtype=torch.quint8,
+                    qscheme=torch.per_tensor_affine
+                ),
+                weight=torch.quantization.MinMaxObserver.with_args(
+                    dtype=torch.qint8,
+                    qscheme=torch.per_tensor_symmetric
+                )
+            )
+
+        # Set qconfig for the model
+        self.qconfig = qconfig
+
+        # Prepare submodules in correct order
+        logger.info("Preparing CNN encoder (ResNet50) for quantization...")
+        self.cnn_encoder.prepare_for_quantization()
+
+        logger.info("Preparing RNN decoder for quantization...")
+        self.rnn_decoder.prepare_for_quantization()
+
+        logger.info("Preparing prediction head for quantization...")
+        self.prediction_head.prepare_for_quantization()
+
+        # Propagate qconfig to all modules
+        torch.quantization.propagate_qconfig_(self)
+
+        # Set model to eval mode for quantization preparation
+        # This is important for pretrained models
+        self.eval()
+
+        # Prepare the model for quantization-aware training or post-training quantization
+        torch.quantization.prepare(self, inplace=True)
+
+        self._quantization_prepared = True
+        logger.info("Model prepared for quantization with pretrained ResNet50")
+
+    def quantize(self):
+        """
+        Convert the pretrained model to quantized version.
+        This should be called after prepare_for_quantization() and calibration.
+        """
+        if not self.config.quantization_config.enable_quantization:
+            return
+
+        if not self._quantization_prepared:
+            logger.error("Model must be prepared for quantization first. Call prepare_for_quantization()")
+            return
+
+        logger.info("Converting pretrained model to quantized version...")
+
+        # Ensure model is in eval mode for quantization
+        self.eval()
+
+        # Convert to quantized model
+        torch.quantization.convert(self, inplace=True)
+
+        logger.info("Pretrained model successfully converted to 8-bit quantized version")
+
+    def calibrate_quantization(self, dataloader, num_batches=100):
+        """
+        Calibrate quantization observers using sample data.
+        This is required for post-training quantization of pretrained models.
+
+        Args:
+            dataloader: DataLoader containing calibration data
+            num_batches: Number of batches to use for calibration
+        """
+        if not self._quantization_prepared:
+            logger.error("Model must be prepared for quantization first")
+            return
+
+        logger.info(f"Calibrating quantization with {num_batches} batches...")
+
+        self.eval()
+        with torch.no_grad():
+            for i, batch in enumerate(dataloader):
+                if i >= num_batches:
+                    break
+
+                images = batch.get('images') or batch.get('image') or batch[0]
+                if torch.cuda.is_available() and next(self.parameters()).is_cuda:
+                    images = images.cuda()
+
+                # Forward pass to collect statistics
+                _ = self.cnn_encoder(images)
+
+                if i % 20 == 0:
+                    logger.info(f"Calibration progress: {i+1}/{num_batches}")
+
+        logger.info("Quantization calibration completed")

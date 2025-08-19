@@ -15,6 +15,11 @@ beam_early_stopping: true
 # Model Architecture Parameters
 joint_embedding_dim: 128
 
+# Quantization Parameters
+enable_quantization: true
+quantization_dtype: "qint8"
+quantization_scheme: "symmetric"
+
 # Training Control Parameters
 gradient_accumulation_steps: 1
 max_grad_norm: 1.0

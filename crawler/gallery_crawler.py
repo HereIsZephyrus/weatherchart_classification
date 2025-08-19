@@ -117,7 +117,7 @@ class GalleryCrawler:
             logger.debug("Scrolling to row %d, scroll_top: %d", row_count, scroll_top)
 
             self.driver.driver.execute_script(
-                "arguments[0].scrollTop = arguments[1];", 
+                "arguments[0].scrollTop = arguments[1];",
                 self.main_layout,
                 scroll_top
             )

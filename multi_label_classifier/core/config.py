@@ -2,7 +2,7 @@
 Configuration classes for the CNN-RNN unified model training.
 Includes model architecture, training strategy, and optimization parameters.
 """
-from typing import ClassVar
+from typing import ClassVar, Literal
 import logging
 import json
 from transformers import PretrainedConfig
@@ -17,6 +17,8 @@ class CNNconfig(BaseModel):
     cnn_feature_dim: ClassVar[int] = 2048
     cnn_dropout: float
     cnn_output_dim: int
+    def to_dict(self):
+        return self.model_dump()
 
 class RNNconfig(BaseModel):
     """RNN architecture configuration parameters"""
@@ -26,6 +28,8 @@ class RNNconfig(BaseModel):
     rnn_hidden_dim: int
     rnn_dropout: float
     rnn_bidirectional:ClassVar[bool] = False
+    def to_dict(self):
+        return self.model_dump()
 
 class UnifiedConfig(BaseModel):
     """Configuration for beam search and joint embedding"""
@@ -33,6 +37,8 @@ class UnifiedConfig(BaseModel):
     beam_max_length: int
     beam_early_stopping: bool
     joint_embedding_dim: int
+    def to_dict(self):
+        return self.model_dump()
 
 class BasicTrainingConfig(BaseModel):
     """Basic training hyperparameters"""
@@ -40,6 +46,8 @@ class BasicTrainingConfig(BaseModel):
     batch_size: int
     gradient_accumulation_steps: int
     max_grad_norm: float
+    def to_dict(self):
+        return self.model_dump()
 
 class LearningStrategyConfig(BaseModel):
     """Training strategy parameters including learning rates and teacher forcing"""
@@ -60,6 +68,8 @@ class LearningStrategyConfig(BaseModel):
     # Label Order Strategy
     label_order_strategy: ClassVar[str] = "frequency"  # frequency, random, fixed
     random_order_ratio: ClassVar[float] = 0.2  # 20% samples use random order
+    def to_dict(self):
+        return self.model_dump()
 
 class OptimizerConfig(BaseModel):
     """Optimizer configuration and hyperparameters"""
@@ -68,11 +78,23 @@ class OptimizerConfig(BaseModel):
     adam_beta1: float
     adam_beta2: float
     adam_epsilon: float
+    def to_dict(self):
+        return self.model_dump()
 
 class LossWeightConfig(BaseModel):
     """Loss weights for multi-task learning"""
     bce_loss_weight: float
     sequence_loss_weight: float
+    def to_dict(self):
+        return self.model_dump()
+
+class QuantizationConfig(BaseModel):
+    """Quantization configuration parameters"""
+    enable_quantization: bool = False
+    quantization_dtype: Literal["qint8", "qint32"] = "qint8"
+    quantization_scheme: str = "symmetric"  # symmetric or asymmetric
+    def to_dict(self):
+        return self.model_dump()
 
 class ValidationConfig(BaseModel):
     """Validation and early stopping configuration"""
@@ -86,9 +108,15 @@ class ValidationConfig(BaseModel):
     early_stopping: ClassVar[bool] = True
     early_stopping_patience: int
     early_stopping_threshold: float
+    def to_dict(self):
+        return self.model_dump()
 
 class Hyperparameter(BaseModel):
     """Configurable hyperparameters for model training"""
+    # Quantization Parameters
+    enable_quantization: bool = False
+    quantization_dtype: str = "qint8"
+    quantization_scheme: str = "symmetric"
     # CNN Parameters
     cnn_dropout: float
     # RNN Parameters
@@ -119,6 +147,8 @@ class Hyperparameter(BaseModel):
     # Early Stopping Parameters
     early_stopping_patience: int
     early_stopping_threshold: float
+    def to_dict(self):
+        return self.model_dump()
 
 class ModelConfig(PretrainedConfig):
     """Model configuration class compatible with Transformers"""
@@ -172,6 +202,7 @@ class ModelConfig(PretrainedConfig):
                 early_stopping_patience=3,
                 early_stopping_threshold=0.001
             )
+            self.quantization_config = QuantizationConfig()
         else:
             # Use provided configuration
             self.cnn_config = CNNconfig(
@@ -215,6 +246,11 @@ class ModelConfig(PretrainedConfig):
                 early_stopping_patience=config_list.early_stopping_patience,
                 early_stopping_threshold=config_list.early_stopping_threshold
             )
+            self.quantization_config = QuantizationConfig(
+                enable_quantization=config_list.enable_quantization,
+                quantization_dtype=config_list.quantization_dtype,
+                quantization_scheme=config_list.quantization_scheme
+            )
 
         super().__init__(**kwargs)
 
@@ -253,26 +289,8 @@ class ModelConfig(PretrainedConfig):
             "learning_strategy_config": self.learning_strategy_config.model_dump(),
             "optimizer_config": self.optimizer_config.model_dump(),
             "loss_weight_config": self.loss_weight_config.model_dump(),
-            "validation_config": self.validation_config.model_dump()
+            "validation_config": self.validation_config.model_dump(),
+            "quantization_config": self.quantization_config.model_dump()
         }
         with open("config.json", "w", encoding="utf-8") as f:
             json.dump(total_config, f, indent=2)
-
-    def to_dict(self):
-        """
-        Convert the configuration to a dictionary.
-        """
-        config_dict = super().to_dict()
-        if config_dict is None:
-            config_dict = {}
-        config_dict.update({
-            "cnn_config": self.cnn_config.model_dump(),
-            "rnn_config": self.rnn_config.model_dump(),
-            "unified_config": self.unified_config.model_dump(),
-            "basic_learning_config": self.basic_config.model_dump(),
-            "learning_strategy_config": self.learning_strategy_config.model_dump(),
-            "optimizer_config": self.optimizer_config.model_dump(),
-            "loss_weight_config": self.loss_weight_config.model_dump(),
-            "validation_config": self.validation_config.model_dump()
-        })
-        return config_dict

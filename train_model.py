@@ -29,10 +29,7 @@ config = TrainingConfig(
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler(f'{MULTI_LABEL_EXPERIMENTS_DIR}/{config.trainer_name}/training.log')
-    ]
+    handlers=logging.StreamHandler()
 )
 logger = logging.getLogger(__name__)
 
@@ -40,7 +37,7 @@ logger = logging.getLogger(__name__)
 def train_model():
     """
     train the model
-    """ 
+    """
     if not os.path.exists(f"{CURRENT_DATASET_DIR}/metadata"):
         logger.info("No dataset found, splitting the dataset")
         spliter = DataSpliter(SplitConfig())

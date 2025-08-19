@@ -315,7 +315,7 @@ class ExperimentManager:
                     training_summary = train_loader.get_training_summary()
                     logger.info("Training Summary:")
                     logger.info("  Total time: %s", training_summary.get("total_time_formatted", "N/A"))
-                    logger.info("  Completed epochs: %d/%d", 
+                    logger.info("  Completed epochs: %d/%d",
                             training_summary.get("completed_epochs", 0),
                             training_summary.get("total_epochs", 0))
                     logger.info("  Best metrics: %s", training_summary.get("best_metrics", {}))

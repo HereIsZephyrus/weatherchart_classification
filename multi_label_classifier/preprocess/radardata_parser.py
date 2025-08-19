@@ -10,7 +10,6 @@ import pandas as pd
 from ...constants import RADAR_RAW_DIR
 from ..settings import RADAR_DIR
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class RadarDatasetParser:

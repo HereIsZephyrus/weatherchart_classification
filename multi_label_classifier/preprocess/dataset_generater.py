@@ -55,12 +55,12 @@ class DatasetBuilder:
     """
     builder for a dataset
     """
-    def __init__(self, size_list: Dict[DatasetRole, int]):
-        self.matadata_columns = ["label", "en_name", "zh_name", "summary"]
+    def __init__(self, size_list: Dict[DatasetRole, int], metadata_columns: List[str]):
+        self.metadata_columns = metadata_columns
         self.metadata_list: Dict[DatasetRole, pd.DataFrame] = {
-            DatasetRole.TRAIN: pd.DataFrame(columns=self.matadata_columns),
-            DatasetRole.VALIDATION: pd.DataFrame(columns=self.matadata_columns),
-            DatasetRole.TEST: pd.DataFrame(columns=self.matadata_columns),
+            DatasetRole.TRAIN: pd.DataFrame(columns=self.metadata_columns),
+            DatasetRole.VALIDATION: pd.DataFrame(columns=self.metadata_columns),
+            DatasetRole.TEST: pd.DataFrame(columns=self.metadata_columns),
         }
         self.index_list: Dict[DatasetRole, List[int]] = self.shuffle_index(size_list)
 
@@ -180,7 +180,7 @@ class DataSpliter:
         """
         types = self.get_types(self.input_dir)
         size_list = self.count_images(types)
-        builder = DatasetBuilder(size_list)
+        builder = DatasetBuilder(size_list, ["label", "en_name", "zh_name", "summary"])
         for type_name in types:
             train_index, validation_index, test_index, image_files = self.split_images(folder_path=self.input_dir / type_name)
             if train_index == -1:

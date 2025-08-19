@@ -10,7 +10,6 @@ from pydantic import BaseModel
 from .chart import Chart
 from ..settings import IMAGE_SIZE, LOGO_DIR
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class EnhancerConfig(BaseModel):

@@ -1,5 +1,6 @@
 """
-Vocabulary for the weather chart classification.
+Vocabulary management for weather chart labels.
+Handles token indexing, frequency counting, and special tokens.
 """
 
 import os
@@ -15,7 +16,8 @@ __all__ = ["vocabulary"]
 
 class Vocabulary:
     """
-    Vocabulary for the weather chart classification.
+    Singleton class for managing weather chart label vocabulary.
+    Includes token indexing, frequency-based filtering, and special tokens.
     """
     _instance = None  # singleton
 
@@ -47,7 +49,8 @@ class Vocabulary:
 
     def count_corpus(self) -> pd.DataFrame:
         """
-        Count the frequency of each kind
+        Count frequency of each label in the dataset.
+        Returns a DataFrame with label frequencies sorted in descending order.
         """
         frequency : Dict[str, int] = {}
         for kinds, kind_stats in self.stats.kinds.items():
@@ -64,7 +67,14 @@ class Vocabulary:
 
     def embedding(self, tags: List[str], add_boseos: bool = True) -> List[int]:
         """
-        Embedding the tags into indices
+        Convert label tags to token indices.
+
+        Args:
+            tags: List of label tags to convert
+            add_boseos: Whether to add BOS/EOS tokens
+
+        Returns:
+            List of token indices
         """
         indices: List[int] = [self.token2idx.get(tag, self.unk) for tag in tags]
         if add_boseos:
@@ -73,7 +83,14 @@ class Vocabulary:
 
     def detokenize(self, indices: List[int], keep_bos_eos: bool = False) -> List[str]:
         """
-        Detokenize the indices
+        Convert token indices back to label tags.
+
+        Args:
+            indices: List of token indices to convert
+            keep_bos_eos: Whether to keep BOS/EOS tokens in output
+
+        Returns:
+            List of label tags
         """
         tokens = []
         for idx in indices:
@@ -92,23 +109,17 @@ class Vocabulary:
 
     @property
     def unk(self):
-        """
-        Unknown token
-        """
+        """Index of the unknown token (<unk>)"""
         return 0
 
     @property
     def bos(self):
-        """
-        Begin of sentence token
-        """
+        """Index of the beginning-of-sequence token (<bos>)"""
         return 1
 
     @property
     def eos(self):
-        """
-        End of sentence token
-        """
+        """Index of the end-of-sequence token (<eos>)"""
         return 2
 
 vocabulary = Vocabulary(GALLERY_DIR)

@@ -300,7 +300,8 @@ class LossCalculator:
         sequence_weight: float = 0.5,
         use_focal_loss: bool = True,
         focal_alpha: float = 0.25,
-        focal_gamma: float = 2.0
+        focal_gamma: float = 2.0,
+        **kwargs  # For backward compatibility
     ):
         self.bce_weight = bce_weight
         self.sequence_weight = sequence_weight
@@ -539,9 +540,7 @@ def save_predictions(
         raise
 
 
-def create_label_frequency_stats(
-    dataset_path: str = None
-) -> Dict[str, int]:
+def create_label_frequency_stats() -> Dict[str, int]:
     """
     Get label frequency statistics for ordering labels by frequency.
     Important for CNN-RNN method which orders labels by frequency during training.

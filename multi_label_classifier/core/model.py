@@ -68,76 +68,79 @@ class CNNEncoder(nn.Module):
 class RNNDecoder(nn.Module):
     def __init__(self, config: RNNconfig, img_feat_dim: int):
         """
-        初始化RNN解码器
-        :param embed_dim: 标签嵌入维度（与公式中w_k维度一致）
-        :param hidden_dim: LSTM隐藏状态r(t)的维度
-        :param img_feat_dim: 图像特征I的维度（来自CNN输出）
+        Initialize RNN decoder.
+        
+        Args:
+            config: RNN configuration parameters
+            img_feat_dim: Dimension of image features from CNN encoder
         """
         super(RNNDecoder, self).__init__()
-        # 标签嵌入矩阵U_l（公式2）：将one-hot标签转为低维嵌入
+        # Label embedding matrix U_l (Eq. 2): Convert one-hot labels to low-dim embeddings
         self.label_embedding = nn.Embedding(
             num_embeddings=len(vocabulary),
             embedding_dim=config.rnn_hidden_dim
         )
         
-        # LSTM门控参数（公式3.1）
-        # 遗忘门f_t: f_t = δ(U_f_r · r(t-1) + U_f_w · w_k(t))
+        # Forget gate f_t: f_t = δ(U_f_r · r(t-1) + U_f_w · w_k(t))
         self.f_gate_r = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_f_r
-        self.f_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)   # U_f_w
+        self.f_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_f_w
         
-        # 输入门i_t: i_t = δ(U_i_r · r(t-1) + U_i_w · w_k(t))
+        # Input gate i_t: i_t = δ(U_i_r · r(t-1) + U_i_w · w_k(t))
         self.i_gate_r = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_i_r
-        self.i_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)   # U_i_w
+        self.i_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_i_w
         
-        # 候选状态x_t: x_t = δ(U_r · r(t-1) + U_w · w_k(t))
+        # Candidate state x_t: x_t = δ(U_r · r(t-1) + U_w · w_k(t))
         self.candidate_r = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_r
-        self.candidate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)   # U_w
+        self.candidate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_w
         
-        # 输出门o_t: o_t = δ(U_o_r · r(t-1) + U_o_w · w_k(t))
+        # Output gate o_t: o_t = δ(U_o_r · r(t-1) + U_o_w · w_k(t))
         self.o_gate_r = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_o_r
-        self.o_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)   # U_o_w
+        self.o_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_o_w
         
-        # 投影矩阵（公式4）：将递归输出o(t)和图像特征I投影到嵌入空间
+        # Projection matrices (Eq. 4): Project RNN output o(t) and image features I to embedding space
         self.proj_o = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_o^x
         self.proj_img = nn.Linear(img_feat_dim, config.rnn_hidden_dim)  # U_I^x
         
-        # 激活函数：ReLU（方法3.1明确指定）
+        # Activation function: ReLU (as specified in Section 3.1)
         self.activation = nn.ReLU()
 
     def forward(self, prev_label_idx, prev_hidden, img_feat):
         """
-        前向传播（单个时间步）
-        :param prev_label_idx: 上一时间步预测的标签索引 (batch_size,)
-        :param prev_hidden: 上一时间步的隐藏状态r(t-1) (batch_size, hidden_dim)
-        :param img_feat: 图像特征I (batch_size, img_feat_dim)
-        :return: 
-            current_score: 当前时间步的标签分数s(t) (batch_size, num_labels)
-            current_hidden: 当前时间步的隐藏状态r(t) (batch_size, hidden_dim)
+        Forward pass for a single time step.
+
+        Args:
+            prev_label_idx: Previous predicted label indices [batch_size]
+            prev_hidden: Previous hidden state r(t-1) [batch_size, hidden_dim]
+            img_feat: Image features I [batch_size, img_feat_dim]
+
+        Returns:
+            current_score: Current label scores s(t) [batch_size, num_labels]
+            current_hidden: Current hidden state r(t) [batch_size, hidden_dim]
         """
-        # 1. 计算标签嵌入w_k(t)（公式2）
-        w_k = self.label_embedding(prev_label_idx)  # (batch_size, embed_dim)
+        # 1. Compute label embedding w_k(t) (Eq. 2)
+        w_k = self.label_embedding(prev_label_idx)  # [batch_size, embed_dim]
         
-        # 2. LSTM门控计算（公式3.1）
-        # 遗忘门
-        f_t = self.activation(self.f_gate_r(prev_hidden) + self.f_gate_w(w_k))  # (batch_size, hidden_dim)
-        # 输入门
-        i_t = self.activation(self.i_gate_r(prev_hidden) + self.i_gate_w(w_k))  # (batch_size, hidden_dim)
-        # 候选状态
-        x_t = self.activation(self.candidate_r(prev_hidden) + self.candidate_w(w_k))  # (batch_size, hidden_dim)
-        # 更新隐藏状态r(t)
-        current_hidden = f_t * prev_hidden + i_t * x_t  # (batch_size, hidden_dim)
-        # 输出门
-        o_t = self.activation(self.o_gate_r(current_hidden) + self.o_gate_w(w_k))  # (batch_size, hidden_dim)
-        # 递归层输出o(t)
-        o_t = current_hidden * o_t  # (batch_size, hidden_dim)
+        # 2. LSTM gate computations (Eq. 3.1)
+        # Forget gate
+        f_t = self.activation(self.f_gate_r(prev_hidden) + self.f_gate_w(w_k))  # [batch_size, hidden_dim]
+        # Input gate
+        i_t = self.activation(self.i_gate_r(prev_hidden) + self.i_gate_w(w_k))  # [batch_size, hidden_dim]
+        # Candidate state
+        x_t = self.activation(self.candidate_r(prev_hidden) + self.candidate_w(w_k))  # [batch_size, hidden_dim]
+        # Update hidden state r(t)
+        current_hidden = f_t * prev_hidden + i_t * x_t  # [batch_size, hidden_dim]
+        # Output gate
+        o_t = self.activation(self.o_gate_r(current_hidden) + self.o_gate_w(w_k))  # [batch_size, hidden_dim]
+        # RNN layer output o(t)
+        o_t = current_hidden * o_t  # [batch_size, hidden_dim]
         
-        # 3. 图像特征与递归输出的联合投影（公式4）
-        proj_o = self.proj_o(o_t)  # (batch_size, embed_dim)
-        proj_img = self.proj_img(img_feat)  # (batch_size, embed_dim)
-        x_t_proj = self.activation(proj_o + proj_img)  # (batch_size, embed_dim)
+        # 3. Joint projection of image features and RNN output (Eq. 4)
+        proj_o = self.proj_o(o_t)  # [batch_size, embed_dim]
+        proj_img = self.proj_img(img_feat)  # [batch_size, embed_dim]
+        x_t_proj = self.activation(proj_o + proj_img)  # [batch_size, embed_dim]
         
-        # 4. 计算标签分数s(t)（公式5）：s(t) = U_l^T · x_t_proj
-        # 注：label_embedding.weight即U_l，转置后与x_t_proj点积
+        # 4. Compute label scores s(t) (Eq. 5): s(t) = U_l^T · x_t_proj
+        # Note: label_embedding.weight is U_l, transposed for dot product
         current_score = torch.matmul(x_t_proj, self.label_embedding.weight.t())  # (batch_size, num_labels)
         
         return current_score, current_hidden

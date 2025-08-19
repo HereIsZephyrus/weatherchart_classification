@@ -1,5 +1,6 @@
 """
-Configuration classes for the CNN-RNN unified framework training.
+Configuration classes for the CNN-RNN unified model training.
+Includes model architecture, training strategy, and optimization parameters.
 """
 from typing import ClassVar
 import logging
@@ -11,28 +12,14 @@ from ..settings import EPOCH_NUM, SAMPLE_PER_BATCH
 logger = logging.getLogger(__name__)
 
 class CNNconfig(BaseModel):
-    """
-    CNN configuration
-    Args:
-        cnn_backbone: CNN backbone model
-        cnn_feature_dim: CNN feature dimension
-        cnn_dropout: CNN dropout rate
-    """
+    """CNN backbone configuration parameters"""
     cnn_backbone: ClassVar[str] = "resnet50"
     cnn_feature_dim: ClassVar[int] = 2048
     cnn_dropout: float
     cnn_output_dim: int
     
 class RNNconfig(BaseModel):
-    """
-    RNN configuration
-    Args:
-        rnn_type: RNN type
-        rnn_num_layers: RNN number of layers
-        rnn_hidden_dim: RNN hidden dimension
-        rnn_dropout: RNN dropout rate
-        rnn_bidirectional: RNN bidirectional
-    """
+    """RNN architecture configuration parameters"""
     rnn_type:ClassVar[str] = "LSTM"
     rnn_num_layers: int
     rnn_input_dim: int
@@ -41,43 +28,21 @@ class RNNconfig(BaseModel):
     rnn_bidirectional:ClassVar[bool] = False
 
 class UnifiedConfig(BaseModel):
-    """
-    Unified configuration
-    Args:
-        beam_width: Beam width
-        beam_max_length: Beam max length
-        beam_early_stopping: Beam early stopping
-        joint_embedding_dim: The CNN and RNN joint embedding dimension
-    """
+    """Configuration for beam search and joint embedding"""
     beam_width: int
     beam_max_length: int
     beam_early_stopping: bool
     joint_embedding_dim: int
 
 class BasicTrainingConfig(BaseModel):
-    """
-    Basic training configuration
-    Args:
-        num_epochs: Number of epochs
-        batch_size: Batch size
-        gradient_accumulation_steps: Gradient accumulation steps
-        max_grad_norm: Max gradient norm
-    """
+    """Basic training hyperparameters"""
     num_epochs: int
     batch_size: int
     gradient_accumulation_steps: int
     max_grad_norm: float
 
 class LearningStrategyConfig(BaseModel):
-    """
-    Learning strategy configuration
-    Args:
-        warmup_epochs: Warmup epochs
-        freeze_cnn_during_warmup: Freeze CNN during warmup
-        cnn_learning_rate: CNN learning rate
-        rnn_learning_rate: RNN learning rate
-        warmup_learning_rate: Warmup learning rate
-    """
+    """Training strategy parameters including learning rates and teacher forcing"""
     # learning rate
     warmup_epochs: ClassVar[int] = 5
     freeze_cnn_during_warmup: ClassVar[bool] = True
@@ -97,15 +62,7 @@ class LearningStrategyConfig(BaseModel):
     random_order_ratio: ClassVar[float] = 0.2  # 20% samples use random order
 
 class OptimizerConfig(BaseModel):
-    """
-    Optimizer configuration
-    Args:
-        optimizer: Optimizer
-        weight_decay: Weight decay
-        adam_beta1: Adam beta1
-        adam_beta2: Adam beta2
-        adam_epsilon: Adam epsilon
-    """
+    """Optimizer configuration and hyperparameters"""
     optimizer: str = "AdamW"
     weight_decay: float
     adam_beta1: float
@@ -113,28 +70,12 @@ class OptimizerConfig(BaseModel):
     adam_epsilon: float
 
 class LossWeightConfig(BaseModel):
-    """
-    Loss weight configuration for CNN-RNN framework
-    Args:
-        bce_loss_weight: BCE loss weight for parallel multi-label prediction
-        sequence_loss_weight: Sequence loss weight for sequential prediction
-    """
+    """Loss weights for multi-task learning"""
     bce_loss_weight: float
     sequence_loss_weight: float
 
 class ValidationConfig(BaseModel):
-    """
-    Validation configuration
-    Args:
-        eval_steps: Evaluation steps
-        save_steps: Save steps
-        save_total_limit: Save total limit
-        metric_for_best_model: Metric for best model
-        greater_is_better: Greater is better
-        early_stopping: Early stopping
-        early_stopping_patience: Early stopping patience
-        early_stopping_threshold: Early stopping threshold
-    """
+    """Validation and early stopping configuration"""
     # Validation and Saving
     eval_steps: ClassVar[int] = 500
     save_steps: ClassVar[int] = 1000
@@ -147,9 +88,7 @@ class ValidationConfig(BaseModel):
     early_stopping_threshold: float
 
 class Hyperparameter(BaseModel):
-    """
-    Hyperparameter list that can be configured
-    """
+    """Configurable hyperparameters for model training"""
     # CNN Parameters
     cnn_dropout: float
     # RNN Parameters
@@ -182,9 +121,7 @@ class Hyperparameter(BaseModel):
     early_stopping_threshold: float
 
 class ModelConfig(PretrainedConfig):
-    """
-    Model configuration class, compatible with Hugging Face.
-    """
+    """Model configuration class compatible with Transformers"""
 
     model_type = "weather_chart_cnn_rnn"
 

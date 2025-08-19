@@ -1,6 +1,7 @@
 """
-Trainer class for CNN-RNN unified framework with two-stage training strategy.
-Based on the training strategy from docs/train.md section 3.2.
+Trainer for CNN-RNN unified model implementing a two-stage training strategy:
+1. Warmup: Train RNN with frozen CNN
+2. Fine-tuning: End-to-end training with differential learning rates
 """
 import logging
 import os
@@ -25,9 +26,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["WeatherChartTrainer"]
 
 class TrainingStage(Enum):
-    """
-    training stage
-    """
+    """Training stages for the model"""
     WARMUP = "warmup"
     FINE_TUNE = "finetune"
 

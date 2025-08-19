@@ -1,5 +1,6 @@
 """
-Training dataset generate module
+Dataset and DataLoader implementations for weather chart classification.
+Includes dataset reading, batch processing, and training state tracking.
 """
 
 import os
@@ -21,24 +22,20 @@ from ..settings import EPOCH_NUM, SAMPLE_PER_BATCH, CURRENT_DATASET_DIR, NUM_WOR
 logger = logging.getLogger(__name__)
 
 class ProgressStatus(str, Enum):
-    """
-    status of the data batch
-    """
+    """Processing status for data batches"""
     PENDING = "pending"
     PROCESSING = "processing"
     COMPLETED = "completed"
 
 class DatasetReader(Dataset):
-    """
-    Pandas-based weather chart dataset class
-    """
+    """Dataset reader for weather chart images and their metadata"""
 
     def __init__(self, csv_file: str):
         """
-        Initialize Pandas dataset
+        Initialize dataset reader.
 
         Args:
-            csv_file: Path to CSV metadata file
+            csv_file: Path to CSV file containing image metadata and labels
         """
         self.csv_file = csv_file
         self.dataset_type = csv_file.split("/")[-1].split(".")[0] # train, validation, test
@@ -55,9 +52,9 @@ class DatasetReader(Dataset):
         self._preprocess_labels()
 
     def _preprocess_labels(self):
-        """Preprocess label column operations"""
+        """Process label column and create image paths"""
         def parse_labels(label_str):
-            """Parse label string to list"""
+            """Convert label string to list, handling various input formats"""
             if pd.isna(label_str) or label_str == '':
                 return []
             try:
@@ -77,7 +74,7 @@ class DatasetReader(Dataset):
         return len(self.df)
 
     def __getitem__(self, idx):
-        """Get item by index"""
+        """Get dataset item by index, including image and metadata"""
         row = self.df.iloc[idx]
         image_path = row['image_path']
         try:
@@ -99,7 +96,7 @@ class DatasetReader(Dataset):
         }
 
     def get_sample_info(self):
-        """Get dataset statistics"""
+        """Get dataset statistics including sample counts and label distribution"""
         stats = {
             'total_samples': len(self.df),
             'unique_labels': self.df['parsed_labels'].apply(len).sum(),
@@ -109,7 +106,7 @@ class DatasetReader(Dataset):
         return stats
 
 class TrainingState:
-    """Training state tracking for DatasetLoader"""
+    """Training state tracking and checkpointing for DatasetLoader"""
 
     def __init__(self, experiment_dir: str):
         self.experiment_dir = Path(experiment_dir)
@@ -255,9 +252,7 @@ class TrainingState:
 
 
 class DatasetLoader(DataLoader):
-    """
-    Custom DataLoader that inherits from PyTorch DataLoader
-    """
+    """Enhanced DataLoader with training state tracking and checkpointing"""
 
     def __init__(
         self,
@@ -380,16 +375,14 @@ class DatasetLoader(DataLoader):
 
 
 class DatasetFactory:
-    """
-    Factory class for creating weather chart datasets and data loaders
-    """
+    """Factory class for creating datasets and data loaders with consistent configuration"""
 
     def __init__(self, dataset_base_path: str = None):
         """
-        Initialize WeatherDatasetLoader
+        Initialize dataset factory.
 
         Args:
-            dataset_base_path: Base path to dataset directory containing metadata and images folders
+            dataset_base_path: Base directory containing metadata and images folders
         """
         self.dataset_base_path = dataset_base_path or CURRENT_DATASET_DIR
         logger.info("Initialized DatasetLoader with dataset path: %s", self.dataset_base_path)

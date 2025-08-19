@@ -81,7 +81,6 @@ class WeatherChartTrainer:
         self.loss_calculator = LossCalculator(
             bce_weight=config.loss_weight_config.bce_loss_weight,
             sequence_weight=config.loss_weight_config.sequence_loss_weight,
-            coverage_weight=config.loss_weight_config.coverage_loss_weight,
             use_focal_loss=config.learning_strategy_config.use_focal_loss,
             focal_alpha=config.learning_strategy_config.focal_alpha,
             focal_gamma=config.learning_strategy_config.focal_gamma
@@ -354,7 +353,6 @@ class WeatherChartTrainer:
 
         # Process labels to create input sequences for teacher forcing
         input_sequences = None
-        attention_mask = None
 
         if "labels" in batch and self.model.training:
             # Convert label names to sequences for teacher forcing
@@ -375,30 +373,20 @@ class WeatherChartTrainer:
             # Pad sequences to same length
             if batch_sequences:
                 padded_sequences = []
-                attention_masks = []
 
                 for sequence in batch_sequences:
-                    seq_len = len(sequence)
-                    if seq_len < max_seq_len:
-                        # Pad with PAD tokens
+                    if len(sequence) < max_seq_len:
+                        # Pad with UNK tokens
                         padded_seq = torch.cat([
                             sequence, 
-                            torch.full((max_seq_len - seq_len,), vocabulary.unk, dtype=torch.long)
+                            torch.full((max_seq_len - len(sequence),), vocabulary.unk, dtype=torch.long)
                         ])
                     else:
                         padded_seq = sequence
-
-                    # Create attention mask (1 for real tokens, 0 for padding)
-                    attention_mask_seq = torch.cat([
-                        torch.ones(seq_len, dtype=torch.long),
-                        torch.zeros(max_seq_len - seq_len, dtype=torch.long)
-                    ])
-
+                    
                     padded_sequences.append(padded_seq)
-                    attention_masks.append(attention_mask_seq)
 
                 input_sequences = torch.stack(padded_sequences).to(self.device)
-                attention_mask = torch.stack(attention_masks).to(self.device)
 
         # Teacher forcing during training
         if input_sequences is not None and self.model.training:
@@ -413,8 +401,7 @@ class WeatherChartTrainer:
             if use_teacher_forcing:
                 outputs = self.model(
                     images=images,
-                    input_labels=input_sequences,
-                    attention_mask=attention_mask
+                    input_labels=input_sequences
                 )
             else:
                 outputs = self.model(images=images)
@@ -432,7 +419,7 @@ class WeatherChartTrainer:
         """Calculate multi-task loss."""
         sequential_logits = outputs.get("sequential_logits")
         parallel_logits = outputs.get("parallel_logits")
-        attention_weights = outputs.get("attention_weights")
+        # No attention weights in new implementation
 
         # Create target sequences and labels from batch
         target_sequences = None
@@ -454,12 +441,13 @@ class WeatherChartTrainer:
                     batch_target_sequences.append(target_seq)
                     max_seq_len = max(max_seq_len, len(target_seq))
 
-                    # Create binary label vector for parallel prediction
-                    label_vector = torch.zeros(self.label_processor.num_labels)
+                    # Create binary label vector for parallel prediction using vocabulary size
+                    label_vector = torch.zeros(len(vocabulary))
                     for label_name in label_list:
-                        if label_name in self.label_processor.label_mapping:
-                            label_idx = self.label_processor.label_mapping[label_name]
-                            if label_idx < len(label_vector):
+                        if label_name in vocabulary.token2idx:
+                            label_idx = vocabulary.token2idx[label_name]
+                            # Skip special tokens for multi-hot vector
+                            if label_idx not in [vocabulary.bos, vocabulary.eos, vocabulary.unk]:
                                 label_vector[label_idx] = 1.0
                     batch_target_labels.append(label_vector)
                 else:
@@ -468,19 +456,19 @@ class WeatherChartTrainer:
                     batch_target_sequences.append(target_seq)
                     max_seq_len = max(max_seq_len, len(target_seq))
 
-                    # Empty label vector
-                    label_vector = torch.zeros(self.label_processor.num_labels)
+                    # Empty label vector using vocabulary size
+                    label_vector = torch.zeros(len(vocabulary))
                     batch_target_labels.append(label_vector)
 
             # Pad target sequences
             if batch_target_sequences:
                 padded_target_sequences = []
-                attention_masks = []
+                sequence_masks = []
 
                 for target_seq in batch_target_sequences:
                     seq_len = len(target_seq)
                     if seq_len < max_seq_len:
-                        # Pad with PAD tokens
+                        # Pad with UNK tokens
                         padded_seq = torch.cat([
                             target_seq, 
                             torch.full((max_seq_len - seq_len,), vocabulary.unk, dtype=torch.long)
@@ -495,10 +483,10 @@ class WeatherChartTrainer:
                     ])
 
                     padded_target_sequences.append(padded_seq)
-                    attention_masks.append(mask)
+                    sequence_masks.append(mask)
 
                 target_sequences = torch.stack(padded_target_sequences).to(self.device)
-                sequence_mask = torch.stack(attention_masks).to(self.device)
+                sequence_mask = torch.stack(sequence_masks).to(self.device)
                 target_labels = torch.stack(batch_target_labels).to(self.device)
 
         return self.loss_calculator.calculate_loss(
@@ -506,7 +494,7 @@ class WeatherChartTrainer:
             parallel_logits=parallel_logits,
             target_sequence=target_sequences,
             target_labels=target_labels,
-            attention_weights=attention_weights,
+            attention_weights=None,  # No attention weights in new implementation
             sequence_mask=sequence_mask
         )
 
@@ -536,14 +524,15 @@ class WeatherChartTrainer:
                 if "parallel_logits" in outputs and "labels" in batch:
                     predictions = torch.sigmoid(outputs["parallel_logits"])
 
-                    # Create target labels from batch labels
+                    # Create target labels from batch labels using vocabulary
                     batch_target_labels = []
                     for label_list in batch["labels"]:
-                        label_vector = torch.zeros(self.label_processor.num_labels)
+                        label_vector = torch.zeros(len(vocabulary))
                         for label_name in label_list:
-                            if label_name in self.label_processor.label_mapping:
-                                label_idx = self.label_processor.label_mapping[label_name]
-                                if label_idx < len(label_vector):
+                            if label_name in vocabulary.token2idx:
+                                label_idx = vocabulary.token2idx[label_name]
+                                # Skip special tokens for multi-hot vector
+                                if label_idx not in [vocabulary.bos, vocabulary.eos, vocabulary.unk]:
                                     label_vector[label_idx] = 1.0
                         batch_target_labels.append(label_vector)
 
@@ -593,7 +582,7 @@ class WeatherChartTrainer:
         os.makedirs(checkpoint_dir, exist_ok=True)
 
         # Save model
-        self.model.save_pretrained(checkpoint_dir)
+        self.model.save_pretrained(save_directory=checkpoint_dir)
 
         # Save training state
         training_state = {

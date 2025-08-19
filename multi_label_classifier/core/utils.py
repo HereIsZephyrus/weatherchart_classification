@@ -113,20 +113,23 @@ class LabelProcessor:
 
     def create_multi_hot_vector(self, label_names: List[str]) -> torch.Tensor:
         """
-        Create multi-hot vector for parallel BCE loss.
+        Create multi-hot vector for parallel BCE loss using vocabulary indices.
 
         Args:
             label_names: List of label names
 
         Returns:
-            Multi-hot vector tensor
+            Multi-hot vector tensor [vocab_size]
         """
         multi_hot = torch.zeros(len(vocabulary), dtype=torch.float)
         
-        # Get token IDs for each label name
+        # Get token IDs for each label name using vocabulary
         for name in label_names:
             if name in vocabulary.token2idx:
-                multi_hot[vocabulary.token2idx[name]] = 1.0
+                token_idx = vocabulary.token2idx[name]
+                # Skip special tokens (BOS, EOS, UNK, PAD)
+                if token_idx not in [vocabulary.bos, vocabulary.eos, vocabulary.unk]:
+                    multi_hot[token_idx] = 1.0
 
         return multi_hot
 
@@ -137,13 +140,14 @@ class LabelProcessor:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Pad sequences to same length and create attention mask.
+        Used for batch processing in training data preparation.
 
         Args:
             sequences: List of sequence tensors
             max_length: Maximum length (if None, use longest sequence)
 
         Returns:
-            Padded sequences and attention mask
+            Padded sequences and attention mask (True for padding positions)
         """
         if max_length is None:
             max_length = max(len(seq) for seq in sequences)
@@ -286,26 +290,25 @@ class MetricsCalculator:
 
 class LossCalculator:
     """
-    Calculate the multi-task loss combining BCE, sequence, and coverage components.
+    Calculate the multi-task loss combining BCE and sequence components.
+    Simplified for the new CNN-RNN implementation without attention mechanism.
     """
 
     def __init__(
         self,
         bce_weight: float = 1.0,
         sequence_weight: float = 0.5,
-        coverage_weight: float = 0.1,
         use_focal_loss: bool = True,
         focal_alpha: float = 0.25,
         focal_gamma: float = 2.0
     ):
         self.bce_weight = bce_weight
         self.sequence_weight = sequence_weight
-        self.coverage_weight = coverage_weight
         self.use_focal_loss = use_focal_loss
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
 
-        logger.info("Initialized loss calculator with weights: BCE=%f, Seq=%f, Coverage=%f", bce_weight, sequence_weight, coverage_weight)
+        logger.info("Initialized loss calculator with weights: BCE=%f, Seq=%f", bce_weight, sequence_weight)
 
     def focal_loss(
         self,
@@ -331,33 +334,7 @@ class LossCalculator:
         focal_loss = alpha * (1 - pt) ** gamma * ce_loss
         return focal_loss.mean()
 
-    def coverage_loss(
-        self,
-        attention_weights: torch.Tensor,
-        sequence_mask: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Calculate coverage loss to prevent repetitive attention.
-
-        Args:
-            attention_weights: Attention weights [batch_size, seq_len, seq_len]
-            sequence_mask: Sequence mask [batch_size, seq_len]
-
-        Returns:
-            Coverage loss value
-        """
-        # Sum attention weights over time steps
-        coverage = attention_weights.sum(dim=1)  # [batch_size, seq_len]
-
-        # Penalize when coverage exceeds 1.0
-        penalty = torch.clamp(coverage - 1.0, min=0.0)
-
-        # Apply sequence mask to ignore padding
-        if sequence_mask is not None:
-            penalty = penalty * sequence_mask.float()
-            return penalty.sum() / sequence_mask.sum()
-        else:
-            return penalty.mean()
+    # Coverage loss removed - not used in new CNN-RNN implementation without attention
 
     def calculate_loss(
         self,
@@ -365,26 +342,26 @@ class LossCalculator:
         parallel_logits: torch.Tensor,
         target_sequence: torch.Tensor,
         target_labels: torch.Tensor,
-        attention_weights: Optional[torch.Tensor] = None,
+        attention_weights: Optional[torch.Tensor] = None,  # Ignored in new implementation
         sequence_mask: Optional[torch.Tensor] = None
     ) -> Dict[str, torch.Tensor]:
         """
-        Calculate multi-task loss.
+        Calculate multi-task loss for CNN-RNN framework.
 
         Args:
             sequential_logits: Sequential prediction logits [batch_size, seq_len, vocab_size]
-            parallel_logits: Parallel prediction logits [batch_size, num_labels]
+            parallel_logits: Parallel prediction logits [batch_size, vocab_size]
             target_sequence: Target sequence [batch_size, seq_len]
-            target_labels: Target multi-hot labels [batch_size, num_labels]
-            attention_weights: Attention weights for coverage loss
-            sequence_mask: Sequence mask for padding
+            target_labels: Target multi-hot labels [batch_size, vocab_size]
+            attention_weights: Ignored in new implementation (for backward compatibility)
+            sequence_mask: Sequence mask for padding [batch_size, seq_len]
 
         Returns:
             Dictionary containing individual and total losses
         """
         losses = {}
 
-        # 1. Parallel BCE Loss
+        # 1. Parallel BCE Loss (for multi-label classification)
         if self.use_focal_loss:
             # Apply focal loss to parallel predictions
             bce_loss = F.binary_cross_entropy_with_logits(
@@ -400,38 +377,55 @@ class LossCalculator:
             )
         losses["bce_loss"] = bce_loss
 
-        # 2. Sequential Cross-Entropy Loss
+        # 2. Sequential Cross-Entropy Loss (for sequence modeling)
         batch_size, seq_len, vocab_size = sequential_logits.shape
         sequential_logits_flat = sequential_logits.view(-1, vocab_size)
         target_sequence_flat = target_sequence.view(-1)
 
-        if self.use_focal_loss:
-            sequence_loss = self.focal_loss(
-                sequential_logits_flat, 
-                target_sequence_flat,
-                self.focal_alpha,
-                self.focal_gamma
-            )
+        # Apply sequence mask to ignore padding tokens
+        if sequence_mask is not None:
+            # Use mask to ignore padding positions
+            mask_flat = sequence_mask.view(-1).bool()
+            if mask_flat.any():
+                # Only compute loss on non-padding positions
+                masked_logits = sequential_logits_flat[mask_flat]
+                masked_targets = target_sequence_flat[mask_flat]
+                
+                if self.use_focal_loss:
+                    sequence_loss = self.focal_loss(
+                        masked_logits, 
+                        masked_targets,
+                        self.focal_alpha,
+                        self.focal_gamma
+                    )
+                else:
+                    sequence_loss = F.cross_entropy(masked_logits, masked_targets)
+            else:
+                # No valid positions, return zero loss
+                sequence_loss = torch.tensor(0.0, device=sequential_logits.device)
         else:
-            sequence_loss = F.cross_entropy(
-                sequential_logits_flat, 
-                target_sequence_flat,
-                ignore_index=-100  # Ignore padding tokens if using -100
-            )
+            # No mask provided, compute loss on all positions
+            # Use vocabulary.unk as ignore index for padding
+            if self.use_focal_loss:
+                sequence_loss = self.focal_loss(
+                    sequential_logits_flat, 
+                    target_sequence_flat,
+                    self.focal_alpha,
+                    self.focal_gamma
+                )
+            else:
+                sequence_loss = F.cross_entropy(
+                    sequential_logits_flat, 
+                    target_sequence_flat,
+                    ignore_index=vocabulary.unk  # Ignore padding tokens
+                )
+        
         losses["sequence_loss"] = sequence_loss
 
-        # 3. Coverage Loss
-        if attention_weights is not None and self.coverage_weight > 0:
-            coverage_loss = self.coverage_loss(attention_weights, sequence_mask)
-            losses["coverage_loss"] = coverage_loss
-        else:
-            losses["coverage_loss"] = torch.tensor(0.0, device=parallel_logits.device)
-
-        # 4. Total Loss
+        # 3. Total Loss (no coverage loss in new implementation)
         total_loss = (
             self.bce_weight * losses["bce_loss"] +
-            self.sequence_weight * losses["sequence_loss"] +
-            self.coverage_weight * losses["coverage_loss"]
+            self.sequence_weight * losses["sequence_loss"]
         )
         losses["total_loss"] = total_loss
 
@@ -546,29 +540,34 @@ def save_predictions(
 
 
 def create_label_frequency_stats(
-    dataset_path: str
+    dataset_path: str = None
 ) -> Dict[str, int]:
     """
-    Calculate label frequency statistics from dataset.
+    Get label frequency statistics for ordering labels by frequency.
+    Important for CNN-RNN method which orders labels by frequency during training.
 
     Args:
-        dataset_path: Path to dataset
+        dataset_path: Path to dataset (optional, not used in current implementation)
 
     Returns:
-        Dictionary with label frequencies
+        Dictionary with label frequencies from vocabulary
     """
-    # This is a placeholder - implement based on your dataset format
     frequencies = defaultdict(int)
 
-    # Example implementation - adapt to your data format
-    # for sample in dataset:
-    #     for label in sample.labels:
-    #         frequencies[label] += 1
+    # Use vocabulary statistics if available
+    if hasattr(vocabulary, '_token_freqs') and vocabulary._token_freqs:
+        for token, freq in vocabulary._token_freqs.items():
+            # Skip special tokens for frequency-based ordering
+            if token not in [vocabulary.idx2token.get(vocabulary.bos, ''), 
+                           vocabulary.idx2token.get(vocabulary.eos, ''), 
+                           vocabulary.idx2token.get(vocabulary.unk, '')]:
+                frequencies[token] = freq
+    else:
+        # Fallback: assign equal frequency to all tokens
+        logger.warning("No frequency statistics in vocabulary, using equal weights")
+        for token_idx, token in vocabulary.idx2token.items():
+            if token_idx not in [vocabulary.bos, vocabulary.eos, vocabulary.unk]:
+                frequencies[token] = 1
 
-    # 如果可用，直接使用vocabulary中的统计信息
-    if hasattr(vocabulary, '_token_freqs'):
-        for token, freq in vocabulary._token_freqs:
-            frequencies[token] = freq
-
-    logger.info("Calculated label frequencies for %d labels", len(frequencies))
+    logger.info("Retrieved label frequencies for %d labels", len(frequencies))
     return dict(frequencies)

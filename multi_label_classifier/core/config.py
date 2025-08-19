@@ -114,15 +114,13 @@ class OptimizerConfig(BaseModel):
 
 class LossWeightConfig(BaseModel):
     """
-    Loss weight configuration
+    Loss weight configuration for CNN-RNN framework
     Args:
-        bce_loss_weight: BCE loss weight
-        sequence_loss_weight: Sequence loss weight
-        coverage_loss_weight: Coverage loss weight
+        bce_loss_weight: BCE loss weight for parallel multi-label prediction
+        sequence_loss_weight: Sequence loss weight for sequential prediction
     """
     bce_loss_weight: float
     sequence_loss_weight: float
-    coverage_loss_weight: float
 
 class ValidationConfig(BaseModel):
     """
@@ -179,7 +177,6 @@ class Hyperparameter(BaseModel):
     # Loss Weight Parameters
     bce_loss_weight: float
     sequence_loss_weight: float
-    coverage_loss_weight: float
     # Early Stopping Parameters
     early_stopping_patience: int
     early_stopping_threshold: float
@@ -191,51 +188,97 @@ class ModelConfig(PretrainedConfig):
 
     model_type = "weather_chart_cnn_rnn"
 
-    def __init__(self,parameter: Hyperparameter, **kwargs):
+    def __init__(self, config_list: Hyperparameter = None, **kwargs):
         self.seed = 473066198
         self.device = "auto"
-        self.cnn_config = CNNconfig(
-            cnn_dropout=parameter.cnn_dropout,
-            cnn_output_dim=parameter.joint_embedding_dim
-        )
-        self.rnn_config = RNNconfig(
-            rnn_num_layers=parameter.rnn_num_layers,
-            rnn_input_dim=parameter.joint_embedding_dim,
-            rnn_hidden_dim=parameter.rnn_hidden_dim,
-            rnn_dropout=parameter.rnn_dropout
-        )
-        self.unified_config = UnifiedConfig(
-            beam_width=parameter.beam_width,
-            beam_max_length=parameter.beam_max_length,
-            beam_early_stopping=parameter.beam_early_stopping,
-            joint_embedding_dim=parameter.joint_embedding_dim
-        )
-        self.basic_config = BasicTrainingConfig(
-            num_epochs=EPOCH_NUM,
-            batch_size=SAMPLE_PER_BATCH,
-            gradient_accumulation_steps=parameter.gradient_accumulation_steps,
-            max_grad_norm=parameter.max_grad_norm
-        )
-        self.learning_strategy_config = LearningStrategyConfig(
-            cnn_learning_rate=parameter.cnn_learning_rate,
-            rnn_learning_rate=parameter.rnn_learning_rate,
-            warmup_learning_rate=parameter.warmup_learning_rate
-        )
-        self.optimizer_config = OptimizerConfig(
-            weight_decay=parameter.weight_decay,
-            adam_beta1=parameter.adam_beta1,
-            adam_beta2=parameter.adam_beta2,
-            adam_epsilon=parameter.adam_epsilon
-        )
-        self.loss_weight_config = LossWeightConfig(
-            bce_loss_weight=parameter.bce_loss_weight,
-            sequence_loss_weight=parameter.sequence_loss_weight,
-            coverage_loss_weight=parameter.coverage_loss_weight
-        )
-        self.validation_config = ValidationConfig(
-            early_stopping_patience=parameter.early_stopping_patience,
-            early_stopping_threshold=parameter.early_stopping_threshold
-        )
+        
+        # Create default configuration if config_list is None (for Transformers compatibility)
+        if config_list is None:
+            self.cnn_config = CNNconfig(
+                cnn_dropout=0.1,
+                cnn_output_dim=256
+            )
+            self.rnn_config = RNNconfig(
+                rnn_num_layers=2,
+                rnn_input_dim=256,
+                rnn_hidden_dim=256,
+                rnn_dropout=0.1
+            )
+            self.unified_config = UnifiedConfig(
+                beam_width=5,
+                beam_max_length=20,
+                beam_early_stopping=True,
+                joint_embedding_dim=256
+            )
+            self.basic_config = BasicTrainingConfig(
+                num_epochs=10,
+                batch_size=8,
+                gradient_accumulation_steps=1,
+                max_grad_norm=1.0
+            )
+            self.learning_strategy_config = LearningStrategyConfig(
+                cnn_learning_rate=1e-5,
+                rnn_learning_rate=1e-4,
+                warmup_learning_rate=1e-4
+            )
+            self.optimizer_config = OptimizerConfig(
+                weight_decay=0.01,
+                adam_beta1=0.9,
+                adam_beta2=0.999,
+                adam_epsilon=1e-8
+            )
+            self.loss_weight_config = LossWeightConfig(
+                bce_loss_weight=1.0,
+                sequence_loss_weight=0.5
+            )
+            self.validation_config = ValidationConfig(
+                early_stopping_patience=3,
+                early_stopping_threshold=0.001
+            )
+        else:
+            # Use provided configuration
+            self.cnn_config = CNNconfig(
+                cnn_dropout=config_list.cnn_dropout,
+                cnn_output_dim=config_list.joint_embedding_dim
+            )
+            self.rnn_config = RNNconfig(
+                rnn_num_layers=config_list.rnn_num_layers,
+                rnn_input_dim=config_list.joint_embedding_dim,
+                rnn_hidden_dim=config_list.rnn_hidden_dim,
+                rnn_dropout=config_list.rnn_dropout
+            )
+            self.unified_config = UnifiedConfig(
+                beam_width=config_list.beam_width,
+                beam_max_length=config_list.beam_max_length,
+                beam_early_stopping=config_list.beam_early_stopping,
+                joint_embedding_dim=config_list.joint_embedding_dim
+            )
+            self.basic_config = BasicTrainingConfig(
+                num_epochs=EPOCH_NUM,
+                batch_size=SAMPLE_PER_BATCH,
+                gradient_accumulation_steps=config_list.gradient_accumulation_steps,
+                max_grad_norm=config_list.max_grad_norm
+            )
+            self.learning_strategy_config = LearningStrategyConfig(
+                cnn_learning_rate=config_list.cnn_learning_rate,
+                rnn_learning_rate=config_list.rnn_learning_rate,
+                warmup_learning_rate=config_list.warmup_learning_rate
+            )
+            self.optimizer_config = OptimizerConfig(
+                weight_decay=config_list.weight_decay,
+                adam_beta1=config_list.adam_beta1,
+                adam_beta2=config_list.adam_beta2,
+                adam_epsilon=config_list.adam_epsilon
+            )
+            self.loss_weight_config = LossWeightConfig(
+                bce_loss_weight=config_list.bce_loss_weight,
+                sequence_loss_weight=config_list.sequence_loss_weight
+            )
+            self.validation_config = ValidationConfig(
+                early_stopping_patience=config_list.early_stopping_patience,
+                early_stopping_threshold=config_list.early_stopping_threshold
+            )
+        
         super().__init__(**kwargs)
 
     def get_learning_rate_for_stage(self, stage: str, component: str) -> float:

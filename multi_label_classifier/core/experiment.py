@@ -60,7 +60,7 @@ class ExperimentManager:
         """
         with open(self.experiment_dir / "config.yaml", 'r', encoding='utf-8') as f:
             hyper_params = yaml.safe_load(f)
-            return ModelConfig(parameter=Hyperparameter(**hyper_params))
+            return ModelConfig(config_list=Hyperparameter(**hyper_params))
 
     def create_experiment(self) -> ExperimentMetadata:
         """

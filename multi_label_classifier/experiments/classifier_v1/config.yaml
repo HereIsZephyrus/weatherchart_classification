@@ -33,7 +33,6 @@ adam_epsilon: 1.0e-8
 # Loss Weight Parameters
 bce_loss_weight: 1.0
 sequence_loss_weight: 0.5
-coverage_loss_weight: 0.1
 
 # Early Stopping Parameters
 early_stopping_patience: 5

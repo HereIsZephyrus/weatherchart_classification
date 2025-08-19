@@ -4,16 +4,16 @@ CNN-RNN Unified Framework Model Implementation.
 Architecture:
 Image → CNN Encoder → Feature Projection → Joint Embedding Space ← Label Embedding
                                      ↓
-              RNN Sequence Decoder → {Sequential Head, Parallel Head} → Element Prediction
+              RNN Sequence Decoder → Sequential Head → Element Prediction
 """
 import logging
-from typing import Tuple, Optional, Dict
+from typing import Optional, Dict
 import torch
 from torch import nn
 import torch.nn.functional as F
 from transformers import PreTrainedModel
 from torchvision.models import resnet50, ResNet50_Weights
-from .config import ModelConfig, UnifiedConfig, CNNconfig, RNNconfig
+from .config import ModelConfig, CNNconfig, RNNconfig
 from .vocab import vocabulary
 
 logger = logging.getLogger(__name__)
@@ -63,179 +63,121 @@ class CNNEncoder(nn.Module):
         return projected_features
 
 
-class LabelEmbedding(nn.Module):
-    """
-    Learnable label embedding matrix for weather elements.
-    """
-
-    def __init__(self, config: UnifiedConfig):
-        super().__init__()
-        self.config = config
-        self.embedding = nn.Embedding(len(vocabulary), self.config.joint_embedding_dim)
-
-        # Initialize embeddings
-        nn.init.xavier_uniform_(self.embedding.weight)
-        logger.info("Initialized label embedding")
-
-    def forward(self, label_ids: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through label embedding.
-
-        Args:
-            label_ids: Label indices [batch_size, sequence_length]
-
-        Returns:
-            Label embeddings [batch_size, sequence_length, label_embedding_dim]
-        """
-        return self.embedding(label_ids)
-
+# LabelEmbedding class removed - now handled inside RNNDecoder
 
 class RNNDecoder(nn.Module):
-    """
-    RNN sequence decoder with dual-layer LSTM architecture.
-    Implements joint feature fusion and attention mechanism.
-    """
-
-    def __init__(self, config: RNNconfig, cnn_feature_dim: int):
-        super().__init__()
-        self.config = config
-
-        # RNN layers
-        self.rnn = nn.LSTM(
-            input_size=config.rnn_input_dim,
-            hidden_size=config.rnn_hidden_dim,
-            num_layers=config.rnn_num_layers,
-            dropout=config.rnn_dropout if config.rnn_num_layers > 1 else 0,
-            bidirectional=config.rnn_bidirectional,
-            batch_first=True
-        )
-
-        # Joint feature fusion layers
-        self.feature_fusion = nn.Linear(
-            config.rnn_hidden_dim + config.rnn_input_dim,
-            cnn_feature_dim
-        )
-
-        # Attention mechanism for coverage
-        self.attention = nn.MultiheadAttention(
-            embed_dim=config.rnn_input_dim,
-            num_heads=8,
-            dropout=config.rnn_dropout,
-            batch_first=True
-        )
-
-        self.layer_norm = nn.LayerNorm(config.rnn_input_dim)
-        self.dropout = nn.Dropout(config.rnn_dropout)
-
-        logger.info("Initialized RNN decoder")
-
-    def forward(
-        self,
-        label_embeddings: torch.Tensor,
-        image_features: torch.Tensor,
-        hidden_state: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
-        attention_mask: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor], torch.Tensor]:
+    def __init__(self, config: RNNconfig, img_feat_dim: int):
         """
-        Forward pass through RNN decoder.
-
-        Args:
-            label_embeddings: Input label embeddings [batch_size, seq_len, embed_dim]
-            image_features: CNN image features [batch_size, joint_embedding_dim]
-            hidden_state: Initial hidden state for RNN
-            attention_mask: Attention mask for sequence [batch_size, seq_len]
-
-        Returns:
-            fused_features: Joint features [batch_size, seq_len, joint_embedding_dim]
-            hidden_state: Final RNN hidden state
-            attention_weights: Attention weights for coverage loss
+        初始化RNN解码器
+        :param embed_dim: 标签嵌入维度（与公式中w_k维度一致）
+        :param hidden_dim: LSTM隐藏状态r(t)的维度
+        :param img_feat_dim: 图像特征I的维度（来自CNN输出）
         """
-        batch_size, seq_len = label_embeddings.shape[:2]
-
-        # RNN forward pass
-        rnn_output, hidden_state = self.rnn(label_embeddings, hidden_state)
-        # rnn_output: [batch_size, seq_len, rnn_hidden_dim]
-
-        # Expand image features to match sequence length
-        image_features_expanded = image_features.unsqueeze(1).expand(
-            batch_size, seq_len, -1
-        )  # [batch_size, seq_len, joint_embedding_dim]
-
-        # Concatenate RNN output with image features
-        concat_features = torch.cat([rnn_output, image_features_expanded], dim=-1)
-        # concat_features: [batch_size, seq_len, rnn_hidden_dim + joint_embedding_dim]
-
-        # Joint feature fusion
-        fused_features = torch.tanh(self.feature_fusion(concat_features))
-        # fused_features: [batch_size, seq_len, joint_embedding_dim]
-
-        # Apply attention mechanism
-        attended_features, attention_weights = self.attention(
-            fused_features, fused_features, fused_features,
-            key_padding_mask=attention_mask
+        super(RNNDecoder, self).__init__()
+        # 标签嵌入矩阵U_l（公式2）：将one-hot标签转为低维嵌入
+        self.label_embedding = nn.Embedding(
+            num_embeddings=len(vocabulary),
+            embedding_dim=config.rnn_hidden_dim
         )
+        
+        # LSTM门控参数（公式3.1）
+        # 遗忘门f_t: f_t = δ(U_f_r · r(t-1) + U_f_w · w_k(t))
+        self.f_gate_r = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_f_r
+        self.f_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)   # U_f_w
+        
+        # 输入门i_t: i_t = δ(U_i_r · r(t-1) + U_i_w · w_k(t))
+        self.i_gate_r = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_i_r
+        self.i_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)   # U_i_w
+        
+        # 候选状态x_t: x_t = δ(U_r · r(t-1) + U_w · w_k(t))
+        self.candidate_r = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_r
+        self.candidate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)   # U_w
+        
+        # 输出门o_t: o_t = δ(U_o_r · r(t-1) + U_o_w · w_k(t))
+        self.o_gate_r = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_o_r
+        self.o_gate_w = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)   # U_o_w
+        
+        # 投影矩阵（公式4）：将递归输出o(t)和图像特征I投影到嵌入空间
+        self.proj_o = nn.Linear(config.rnn_hidden_dim, config.rnn_hidden_dim)  # U_o^x
+        self.proj_img = nn.Linear(img_feat_dim, config.rnn_hidden_dim)  # U_I^x
+        
+        # 激活函数：ReLU（方法3.1明确指定）
+        self.activation = nn.ReLU()
 
-        # Residual connection and layer normalization
-        fused_features = self.layer_norm(fused_features + self.dropout(attended_features))
+    def forward(self, prev_label_idx, prev_hidden, img_feat):
+        """
+        前向传播（单个时间步）
+        :param prev_label_idx: 上一时间步预测的标签索引 (batch_size,)
+        :param prev_hidden: 上一时间步的隐藏状态r(t-1) (batch_size, hidden_dim)
+        :param img_feat: 图像特征I (batch_size, img_feat_dim)
+        :return: 
+            current_score: 当前时间步的标签分数s(t) (batch_size, num_labels)
+            current_hidden: 当前时间步的隐藏状态r(t) (batch_size, hidden_dim)
+        """
+        # 1. 计算标签嵌入w_k(t)（公式2）
+        w_k = self.label_embedding(prev_label_idx)  # (batch_size, embed_dim)
+        
+        # 2. LSTM门控计算（公式3.1）
+        # 遗忘门
+        f_t = self.activation(self.f_gate_r(prev_hidden) + self.f_gate_w(w_k))  # (batch_size, hidden_dim)
+        # 输入门
+        i_t = self.activation(self.i_gate_r(prev_hidden) + self.i_gate_w(w_k))  # (batch_size, hidden_dim)
+        # 候选状态
+        x_t = self.activation(self.candidate_r(prev_hidden) + self.candidate_w(w_k))  # (batch_size, hidden_dim)
+        # 更新隐藏状态r(t)
+        current_hidden = f_t * prev_hidden + i_t * x_t  # (batch_size, hidden_dim)
+        # 输出门
+        o_t = self.activation(self.o_gate_r(current_hidden) + self.o_gate_w(w_k))  # (batch_size, hidden_dim)
+        # 递归层输出o(t)
+        o_t = current_hidden * o_t  # (batch_size, hidden_dim)
+        
+        # 3. 图像特征与递归输出的联合投影（公式4）
+        proj_o = self.proj_o(o_t)  # (batch_size, embed_dim)
+        proj_img = self.proj_img(img_feat)  # (batch_size, embed_dim)
+        x_t_proj = self.activation(proj_o + proj_img)  # (batch_size, embed_dim)
+        
+        # 4. 计算标签分数s(t)（公式5）：s(t) = U_l^T · x_t_proj
+        # 注：label_embedding.weight即U_l，转置后与x_t_proj点积
+        current_score = torch.matmul(x_t_proj, self.label_embedding.weight.t())  # (batch_size, num_labels)
+        
+        return current_score, current_hidden
 
-        return fused_features, hidden_state, attention_weights
+    def compute_loss(self, score, target_label):
+        return F.cross_entropy(score, target_label)
 
-
-class DualPredictionHead(nn.Module):
+class ParallelPredictionHead(nn.Module):
     """
-    Dual prediction mechanism with sequential and parallel heads.
-
-    - Sequential head: Models conditional probability P(l_t | I, l_{<t})
-    - Parallel BCE head: Direct multi-hot vector prediction
+    Parallel prediction head for direct multi-hot vector prediction.
+    Sequential prediction is now handled directly by RNNDecoder.
     """
 
     def __init__(self, config: ModelConfig):
         super().__init__()
         self.config = config
 
-        # Sequential prediction head
-        self.sequential_head = nn.Linear(
-            config.unified_config.joint_embedding_dim,
-            len(vocabulary)
-        )
-
         # Parallel BCE prediction head
         self.parallel_head = nn.Linear(
-            config.unified_config.joint_embedding_dim,
+            config.cnn_config.cnn_output_dim,  # Use CNN output dimension
             len(vocabulary)
         )
 
         # Dropout for regularization
         self.dropout = nn.Dropout(config.rnn_config.rnn_dropout)
 
-        logger.info("Initialized dual prediction heads")
+        logger.info("Initialized parallel prediction head")
 
-    def forward(
-        self,
-        fused_features: torch.Tensor,
-        pooled_features: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, image_features: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass through dual prediction heads.
+        Forward pass through parallel prediction head.
 
         Args:
-            fused_features: Joint features [batch_size, seq_len, joint_embedding_dim]
-            pooled_features: Pooled features for parallel head [batch_size, joint_embedding_dim]
+            image_features: Image features [batch_size, joint_embedding_dim]
 
         Returns:
-            sequential_logits: Sequential prediction logits [batch_size, seq_len, vocab_size]
-            parallel_logits: Parallel prediction logits [batch_size, num_labels]
+            parallel_logits: Parallel prediction logits [batch_size, vocab_size]
         """
-        # Sequential prediction
-        sequential_logits = self.sequential_head(self.dropout(fused_features))
-
-        # Parallel prediction using mean pooling if pooled_features not provided
-        if pooled_features is None:
-            pooled_features = fused_features.mean(dim=1)  # [batch_size, joint_embedding_dim]
-
-        parallel_logits = self.parallel_head(self.dropout(pooled_features))
-
-        return sequential_logits, parallel_logits
+        parallel_logits = self.parallel_head(self.dropout(image_features))
+        return parallel_logits
 
 
 class WeatherChartModel(PreTrainedModel):
@@ -255,9 +197,8 @@ class WeatherChartModel(PreTrainedModel):
 
         # Initialize model components
         self.cnn_encoder = CNNEncoder(config.cnn_config)
-        self.label_embedding = LabelEmbedding(config.unified_config)
-        self.rnn_decoder = RNNDecoder(config.rnn_config, config.cnn_config.cnn_feature_dim)
-        self.prediction_head = DualPredictionHead(config)
+        self.rnn_decoder = RNNDecoder(config.rnn_config, config.cnn_config.cnn_output_dim)
+        self.prediction_head = ParallelPredictionHead(config)
 
         # Initialize weights
         self.init_weights()
@@ -290,33 +231,28 @@ class WeatherChartModel(PreTrainedModel):
             elif 'bias' in name:
                 nn.init.zeros_(param)
 
-        # Initialize prediction heads
-        nn.init.xavier_uniform_(self.prediction_head.sequential_head.weight)
+        # Initialize parallel prediction head
         nn.init.xavier_uniform_(self.prediction_head.parallel_head.weight)
-        nn.init.zeros_(self.prediction_head.sequential_head.bias)
         nn.init.zeros_(self.prediction_head.parallel_head.bias)
 
     def forward(
         self,
         images: torch.Tensor,
-        input_labels: Optional[torch.Tensor] = None,
-        attention_mask: Optional[torch.Tensor] = None,
+        input_labels: Optional[torch.Tensor] = None
     ) -> Dict[str, torch.Tensor]:
         """
-        Forward pass through the unified framework.
+        Forward pass through the CNN-RNN unified framework.
 
         Args:
             images: Input images [batch_size, 3, height, width]
             input_labels: Label sequences for teacher forcing [batch_size, seq_len]
-            attention_mask: Attention mask [batch_size, seq_len]
-            return_dict: Whether to return ModelOutput or dict
 
         Returns:
             Dictionary containing:
-            - sequential_logits: Sequential prediction logits
-            - parallel_logits: Parallel prediction logits  
-            - attention_weights: Attention weights for coverage loss
-            - image_features: Extracted image features
+            - sequential_logits: Sequential prediction logits [batch_size, seq_len-1, vocab_size]
+            - parallel_logits: Parallel prediction logits [batch_size, vocab_size]  
+            - image_features: Extracted image features [batch_size, joint_embedding_dim]
+            - hidden_state: Final hidden state [batch_size, hidden_dim]
         """
         # Extract image features through CNN
         image_features = self.cnn_encoder(images)
@@ -324,29 +260,42 @@ class WeatherChartModel(PreTrainedModel):
 
         outputs = {"image_features": image_features}
 
-        # If input_labels provided (training mode)
+        # If input_labels provided (training mode with teacher forcing)
         if input_labels is not None:
-            # Get label embeddings
-            label_embeddings = self.label_embedding(input_labels)
-            # label_embeddings: [batch_size, seq_len, label_embedding_dim]
-
-            # RNN decoder forward pass
-            fused_features, hidden_state, attention_weights = self.rnn_decoder(
-                label_embeddings=label_embeddings,
-                image_features=image_features,
-                attention_mask=attention_mask
-            )
-
-            # Dual prediction
-            sequential_logits, parallel_logits = self.prediction_head(
-                fused_features=fused_features,
-                pooled_features=image_features
-            )
-
+            batch_size, seq_len = input_labels.shape
+            device = images.device
+            
+            # Initialize hidden state (batch_size, hidden_dim)
+            hidden_state = torch.zeros(batch_size, self.config.rnn_config.rnn_hidden_dim, device=device)
+            
+            # Collect sequential logits for each time step
+            sequential_logits_list = []
+            
+            # Process sequence step by step (teacher forcing)
+            for t in range(seq_len - 1):  # -1 because we predict next token
+                # Current input label index
+                current_label_idx = input_labels[:, t]  # [batch_size]
+                
+                # RNN decoder forward for current step
+                current_score, hidden_state = self.rnn_decoder(
+                    prev_label_idx=current_label_idx,
+                    prev_hidden=hidden_state,
+                    img_feat=image_features
+                )
+                # current_score: [batch_size, vocab_size]
+                # hidden_state: [batch_size, hidden_dim]
+                
+                sequential_logits_list.append(current_score)
+            
+            # Stack logits: [batch_size, seq_len-1, vocab_size]
+            sequential_logits = torch.stack(sequential_logits_list, dim=1)
+            
+            # For parallel prediction, use image features
+            parallel_logits = self.prediction_head(image_features)
+            
             outputs.update({
                 "sequential_logits": sequential_logits,
                 "parallel_logits": parallel_logits,
-                "attention_weights": attention_weights,
                 "hidden_state": hidden_state,
             })
 
@@ -355,185 +304,160 @@ class WeatherChartModel(PreTrainedModel):
     def generate(
         self,
         images: torch.Tensor,
-        early_stopping: bool = True
+        early_stopping: bool = True,
     ) -> Dict[str, torch.Tensor]:
         """
-        Generate label sequences using beam search decoding.
+        Generate label sequences using beam search with the new RNN decoder.
 
         Args:
             images: Input images [batch_size, 3, height, width]
-            early_stopping: Whether to use early stopping
+            early_stopping: Whether to stop when all beams complete
 
         Returns:
             Dictionary containing generated sequences and scores
         """
-
         batch_size = images.shape[0]
         device = images.device
+        max_len = vocabulary.max_sequence_length
+        beam_width = self.config.unified_config.beam_width
 
-        # Extract image features
-        image_features = self.cnn_encoder(images)
-
-        # Initialize beam search
+        # Extract image features (shared across all beams)
+        image_features = self.cnn_encoder(images)  # [batch_size, joint_embedding_dim]
         
+        # Initialize beam search
+        # Start with BOS token for all beams
         beam_sequences = torch.full(
-            (batch_size, self.config.beam_width, 1),
-            vocabulary.bos,
-            dtype=torch.long,
+            (batch_size, beam_width, 1), 
+            vocabulary.bos, 
+            dtype=torch.long, 
             device=device
-        )
-        beam_scores = torch.zeros(batch_size, self.config.beam_width, device=device)
-        beam_scores[:, 1:] = float('-inf')  # Only first beam is active initially
+        )  # [B, K, 1]
+        
+        # Initialize hidden states for each beam
+        beam_hiddens = torch.zeros(
+            batch_size, beam_width, self.config.rnn_config.rnn_hidden_dim, 
+            device=device
+        )  # [B, K, hidden_dim]
+        
+        # Initialize scores: first beam has 0, others -inf
+        beam_scores = torch.full((batch_size, beam_width), -float('inf'), device=device)
+        beam_scores[:, 0] = 0.0  # Only first beam is active initially
+        
+        # Track completion status
+        beam_completed = torch.zeros((batch_size, beam_width), dtype=torch.bool, device=device)
 
-        # Track completed sequences
-        completed_sequences = []
-        completed_scores = []
+        for step in range(max_len - 1):  # -1 because we start with BOS
+            # Get current input tokens (last token in each sequence)
+            current_tokens = beam_sequences[:, :, -1]  # [B, K]
+            
+            # Flatten for batch processing
+            flat_tokens = current_tokens.view(batch_size * beam_width)  # [B*K]
+            flat_hiddens = beam_hiddens.view(batch_size * beam_width, -1)  # [B*K, hidden_dim]
+            flat_image_feats = image_features.unsqueeze(1).expand(
+                batch_size, beam_width, -1
+            ).contiguous().view(batch_size * beam_width, -1)  # [B*K, joint_dim]
 
-        # Add safety check to prevent infinite loop
-        max_iterations = min(vocabulary.max_sequence_length - 1, 50)  # Safety limit
-        for step in range(max_iterations):
-            # Current sequence length
-            current_length = beam_sequences.shape[-1]
-
-            # Reshape for batch processing
-            current_sequences = beam_sequences.view(batch_size * self.config.beam_width, current_length)
-            expanded_image_features = image_features.unsqueeze(1).expand(
-                batch_size, self.config.beam_width, -1
-            ).contiguous().view(batch_size * self.config.beam_width, -1)
-
-            # Get label embeddings for current sequences
-            label_embeddings = self.label_embedding(current_sequences)
-
-            # RNN decoder forward pass
-            fused_features, _, _ = self.rnn_decoder(
-                label_embeddings=label_embeddings,
-                image_features=expanded_image_features
+            # RNN forward pass for all beams
+            next_scores, new_hiddens = self.rnn_decoder(
+                prev_label_idx=flat_tokens,
+                prev_hidden=flat_hiddens,
+                img_feat=flat_image_feats
             )
+            # next_scores: [B*K, vocab_size]
+            # new_hiddens: [B*K, hidden_dim]
+            
+            # Reshape back to beam structure
+            next_scores = next_scores.view(batch_size, beam_width, -1)  # [B, K, vocab_size]
+            new_hiddens = new_hiddens.view(batch_size, beam_width, -1)  # [B, K, hidden_dim]
+            
+            # Convert to log probabilities
+            next_log_probs = F.log_softmax(next_scores, dim=-1)  # [B, K, vocab_size]
 
-            # Get sequential logits for next token prediction
-            sequential_logits, _ = self.prediction_head(fused_features)
-            next_token_logits = sequential_logits[:, -1, :]  # Last time step
+            # Calculate candidate scores: add current beam score to next token probabilities
+            candidate_scores = beam_scores.unsqueeze(-1) + next_log_probs
+            
+            # Mask completed beams (their scores remain -inf)
+            candidate_scores = torch.where(
+                beam_completed.unsqueeze(-1),
+                -float('inf'),
+                candidate_scores
+            )  # [B, K, vocab_size]
 
-            # Reshape back to beam format
-            next_token_logits = next_token_logits.view(
-                batch_size, self.config.beam_width, -1
-            )
+            # Flatten candidates to select top-K
+            flat_candidates = candidate_scores.view(batch_size, -1)  # [B, K*vocab_size]
+            top_scores, top_indices = torch.topk(flat_candidates, beam_width, dim=-1)  # [B, K]
 
-            # Calculate scores for all possible next tokens
-            vocab_size = next_token_logits.shape[-1]
-            next_token_scores = F.log_softmax(next_token_logits, dim=-1)
+            # Convert flat indices to beam and token indices
+            beam_indices = top_indices // len(vocabulary)  # [B, K]
+            token_indices = top_indices % len(vocabulary)   # [B, K]
 
-            # Add to beam scores
-            candidate_scores = beam_scores.unsqueeze(-1) + next_token_scores
-            candidate_scores = candidate_scores.view(batch_size, -1)
+            # Update sequences: append new tokens to selected beams
+            gather_indices = beam_indices.unsqueeze(-1).expand(-1, -1, step + 1)  # [B, K, seq_len]
+            previous_sequences = torch.gather(beam_sequences, 1, gather_indices)  # [B, K, seq_len]
+            new_sequences = torch.cat([
+                previous_sequences,
+                token_indices.unsqueeze(-1)  # [B, K, 1]
+            ], dim=-1)  # [B, K, seq_len+1]
 
-            # Select top beam_width candidates
-            top_scores, top_indices = torch.topk(
-                candidate_scores, self.config.beam_width, dim=-1
-            )
+            # Update hidden states: gather from previous hidden states using beam_indices
+            gather_hidden_indices = beam_indices.unsqueeze(-1).expand(
+                -1, -1, self.config.rnn_config.rnn_hidden_dim
+            )  # [B, K, hidden_dim]
+            new_beam_hiddens = torch.gather(new_hiddens, 1, gather_hidden_indices)  # [B, K, hidden_dim]
 
-            # Convert flat indices back to beam and token indices
-            beam_indices = top_indices // vocab_size
-            token_indices = top_indices % vocab_size
+            # Update completion status
+            new_completed = beam_completed.gather(1, beam_indices) | (token_indices == vocabulary.eos)
 
-            # Update beam sequences
-            new_sequences = []
-            new_scores = []
+            # Update beam variables for next step
+            beam_sequences = new_sequences
+            beam_hiddens = new_beam_hiddens
+            beam_scores = top_scores
+            beam_completed = new_completed
 
-            for batch_idx in range(batch_size):
-                batch_sequences = []
-                batch_scores = []
+            # Early stopping check: stop if all beams are completed
+            if early_stopping and beam_completed.all():
+                break
 
-                for beam_idx in range(self.config.beam_width):
-                    # Get the parent beam and next token
-                    parent_beam = beam_indices[batch_idx, beam_idx]
-                    next_token = token_indices[batch_idx, beam_idx]
-                    score = top_scores[batch_idx, beam_idx]
-
-                    # Get parent sequence
-                    parent_sequence = beam_sequences[batch_idx, parent_beam]
-
-                    # Create new sequence
-                    new_sequence = torch.cat([
-                        parent_sequence,
-                        next_token.unsqueeze(0)
-                    ])
-
-                    # Check if sequence is completed (EOS token)
-                    if next_token == vocabulary.eos:
-                        if batch_idx >= len(completed_sequences):
-                            completed_sequences.extend([[] for _ in range(batch_idx + 1 - len(completed_sequences))])
-                            completed_scores.extend([[] for _ in range(batch_idx + 1 - len(completed_scores))])
-
-                        completed_sequences[batch_idx].append(new_sequence)
-                        completed_scores[batch_idx].append(score)
-                    else:
-                        batch_sequences.append(new_sequence)
-                        batch_scores.append(score)
-
-                # Pad to beam_width if needed
-                while len(batch_sequences) < self.config.beam_width:
-                    batch_sequences.append(beam_sequences[batch_idx, 0])  # Duplicate first beam
-                    batch_scores.append(float('-inf'))
-
-                new_sequences.append(torch.stack(batch_sequences[:self.config.beam_width]))
-                new_scores.append(torch.stack(batch_scores[:self.config.beam_width]))
-
-            beam_sequences = torch.stack(new_sequences)
-            beam_scores = torch.stack(new_scores)
-
-            # Early stopping check
-            if early_stopping:
-                all_completed = True
-                for batch_idx in range(batch_size):
-                    if batch_idx < len(completed_sequences):
-                        if len(completed_sequences[batch_idx]) == 0:
-                            all_completed = False
-                            break
-                        # Check if best completed score is better than best active score
-                        best_completed = max(completed_scores[batch_idx])
-                        best_active = beam_scores[batch_idx].max()
-                        if best_active > best_completed:
-                            all_completed = False
-                            break
-                    else:
-                        all_completed = False
-                        break
-
-                if all_completed:
-                    break
-
-        # Collect final results
+        # Post-process: select best sequence per batch
         final_sequences = []
         final_scores = []
 
-        for batch_idx in range(batch_size):
-            if batch_idx < len(completed_sequences) and completed_sequences[batch_idx]:
-                # Use best completed sequence
-                best_idx = torch.tensor(completed_scores[batch_idx]).argmax()
-                final_sequences.append(completed_sequences[batch_idx][best_idx])
-                final_scores.append(completed_scores[batch_idx][best_idx])
-            else:
-                # Use best active sequence
-                best_idx = beam_scores[batch_idx].argmax()
-                final_sequences.append(beam_sequences[batch_idx, best_idx])
-                final_scores.append(beam_scores[batch_idx, best_idx])
+        for b in range(batch_size):
+            sequences = beam_sequences[b]  # [K, seq_len]
+            scores = beam_scores[b]        # [K]
+            completed = beam_completed[b]  # [K]
 
-        # Pad sequences to same length
-        max_seq_length = max(seq.shape[0] for seq in final_sequences)
+            # Apply length normalization to scores
+            seq_lengths = sequences.shape[1]
+            normalized_scores = scores / seq_lengths
+
+            # Prioritize completed sequences
+            if completed.any():
+                completed_indices = torch.nonzero(completed).squeeze(-1)
+                best_completed_idx = torch.argmax(normalized_scores[completed_indices])
+                best_idx = completed_indices[best_completed_idx]
+            else:
+                # No completed sequences: pick best normalized score
+                best_idx = torch.argmax(normalized_scores)
+
+            final_sequences.append(sequences[best_idx])
+            final_scores.append(scores[best_idx])
+
+        # Pad sequences to uniform length
+        max_seq_len = max(seq.shape[0] for seq in final_sequences)
         padded_sequences = torch.full(
-            (batch_size, max_seq_length),
-            vocabulary.unk,
+            (batch_size, max_seq_len),
+            vocabulary.unk,  # Use UNK token for padding
             dtype=torch.long,
             device=device
         )
-
         for i, seq in enumerate(final_sequences):
             padded_sequences[i, :len(seq)] = seq
 
         return {
             "sequences": padded_sequences,
-            "scores": torch.stack(final_scores)
+            "scores": torch.stack(final_scores),
+            "lengths": torch.tensor([len(seq) for seq in final_sequences], device=device)
         }
 
     def freeze_cnn(self):

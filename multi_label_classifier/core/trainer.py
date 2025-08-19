@@ -261,9 +261,9 @@ class WeatherChartTrainer:
         except Exception as e:
             logger.error("Training failed with error: %s", e)
             raise
-        finally:
+        #finally:
             # Save final model
-            self._save_model("final_model")
+        #    self._save_model("final_model")
 
         logger.info("Training completed")
 
@@ -382,7 +382,7 @@ class WeatherChartTrainer:
                         ])
                     else:
                         padded_seq = sequence
-                    
+
                     padded_sequences.append(padded_seq)
 
                 input_sequences = torch.stack(padded_sequences).to(self.device)
@@ -397,13 +397,11 @@ class WeatherChartTrainer:
             if teacher_forcing_ratio < 1.0: # determine whether to use teacher forcing
                 use_teacher_forcing = torch.rand(1).item() < teacher_forcing_ratio
 
-            if use_teacher_forcing:
-                outputs = self.model(
-                    images=images,
-                    input_labels=input_sequences
-                )
-            else:
-                outputs = self.model(images=images)
+            outputs = self.model(
+                images=images,
+                input_labels=input_sequences,
+                use_teacher_forcing=use_teacher_forcing
+            )
         else:
             # Inference mode
             outputs = self.model(images=images)
@@ -487,13 +485,15 @@ class WeatherChartTrainer:
                 target_sequences = torch.stack(padded_target_sequences).to(self.device)
                 sequence_mask = torch.stack(sequence_masks).to(self.device)
                 target_labels = torch.stack(batch_target_labels).to(self.device)
-
+        else:
+            logger.warning("No labels provided for training")
+            return {}
+        
         return self.loss_calculator.calculate_loss(
             sequential_logits=sequential_logits,
             parallel_logits=parallel_logits,
             target_sequence=target_sequences,
             target_labels=target_labels,
-            attention_weights=None,  # No attention weights in new implementation
             sequence_mask=sequence_mask
         )
 

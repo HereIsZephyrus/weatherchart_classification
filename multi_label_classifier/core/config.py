@@ -17,7 +17,7 @@ class CNNconfig(BaseModel):
     cnn_feature_dim: ClassVar[int] = 2048
     cnn_dropout: float
     cnn_output_dim: int
-    
+
 class RNNconfig(BaseModel):
     """RNN architecture configuration parameters"""
     rnn_type:ClassVar[str] = "LSTM"
@@ -128,7 +128,7 @@ class ModelConfig(PretrainedConfig):
     def __init__(self, config_list: Hyperparameter = None, **kwargs):
         self.seed = 473066198
         self.device = "auto"
-        
+
         # Create default configuration if config_list is None (for Transformers compatibility)
         if config_list is None:
             self.cnn_config = CNNconfig(
@@ -215,7 +215,7 @@ class ModelConfig(PretrainedConfig):
                 early_stopping_patience=config_list.early_stopping_patience,
                 early_stopping_threshold=config_list.early_stopping_threshold
             )
-        
+
         super().__init__(**kwargs)
 
     def get_learning_rate_for_stage(self, stage: str, component: str) -> float:
@@ -257,3 +257,22 @@ class ModelConfig(PretrainedConfig):
         }
         with open("config.json", "w", encoding="utf-8") as f:
             json.dump(total_config, f, indent=2)
+
+    def to_dict(self):
+        """
+        Convert the configuration to a dictionary.
+        """
+        config_dict = super().to_dict()
+        if config_dict is None:
+            config_dict = {}
+        config_dict.update({
+            "cnn_config": self.cnn_config.model_dump(),
+            "rnn_config": self.rnn_config.model_dump(),
+            "unified_config": self.unified_config.model_dump(),
+            "basic_learning_config": self.basic_config.model_dump(),
+            "learning_strategy_config": self.learning_strategy_config.model_dump(),
+            "optimizer_config": self.optimizer_config.model_dump(),
+            "loss_weight_config": self.loss_weight_config.model_dump(),
+            "validation_config": self.validation_config.model_dump()
+        })
+        return config_dict

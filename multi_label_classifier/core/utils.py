@@ -122,7 +122,7 @@ class LabelProcessor:
             Multi-hot vector tensor [vocab_size]
         """
         multi_hot = torch.zeros(len(vocabulary), dtype=torch.float)
-        
+
         # Get token IDs for each label name using vocabulary
         for name in label_names:
             if name in vocabulary.token2idx:
@@ -343,7 +343,6 @@ class LossCalculator:
         parallel_logits: torch.Tensor,
         target_sequence: torch.Tensor,
         target_labels: torch.Tensor,
-        attention_weights: Optional[torch.Tensor] = None,  # Ignored in new implementation
         sequence_mask: Optional[torch.Tensor] = None
     ) -> Dict[str, torch.Tensor]:
         """
@@ -354,7 +353,6 @@ class LossCalculator:
             parallel_logits: Parallel prediction logits [batch_size, vocab_size]
             target_sequence: Target sequence [batch_size, seq_len]
             target_labels: Target multi-hot labels [batch_size, vocab_size]
-            attention_weights: Ignored in new implementation (for backward compatibility)
             sequence_mask: Sequence mask for padding [batch_size, seq_len]
 
         Returns:
@@ -391,7 +389,7 @@ class LossCalculator:
                 # Only compute loss on non-padding positions
                 masked_logits = sequential_logits_flat[mask_flat]
                 masked_targets = target_sequence_flat[mask_flat]
-                
+
                 if self.use_focal_loss:
                     sequence_loss = self.focal_loss(
                         masked_logits, 
@@ -420,7 +418,7 @@ class LossCalculator:
                     target_sequence_flat,
                     ignore_index=vocabulary.unk  # Ignore padding tokens
                 )
-        
+
         losses["sequence_loss"] = sequence_loss
 
         # 3. Total Loss (no coverage loss in new implementation)
@@ -557,15 +555,13 @@ def create_label_frequency_stats() -> Dict[str, int]:
     if hasattr(vocabulary, '_token_freqs') and vocabulary._token_freqs:
         for token, freq in vocabulary._token_freqs.items():
             # Skip special tokens for frequency-based ordering
-            if token not in [vocabulary.idx2token.get(vocabulary.bos, ''), 
-                           vocabulary.idx2token.get(vocabulary.eos, ''), 
-                           vocabulary.idx2token.get(vocabulary.unk, '')]:
+            if token not in [vocabulary.bos, vocabulary.eos, vocabulary.unk]:
                 frequencies[token] = freq
     else:
         # Fallback: assign equal frequency to all tokens
         logger.warning("No frequency statistics in vocabulary, using equal weights")
-        for token_idx, token in vocabulary.idx2token.items():
-            if token_idx not in [vocabulary.bos, vocabulary.eos, vocabulary.unk]:
+        for token, idx in vocabulary.token2idx.items():
+            if idx not in [vocabulary.bos, vocabulary.eos, vocabulary.unk]:
                 frequencies[token] = 1
 
     logger.info("Retrieved label frequencies for %d labels", len(frequencies))

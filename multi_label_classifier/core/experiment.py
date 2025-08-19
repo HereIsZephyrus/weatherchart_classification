@@ -73,7 +73,7 @@ class ExperimentManager:
         if self.training_config.training_mode == "resume":
             logger.info("Resuming experiment: %s", self.training_config.trainer_name)
             return self.load_metadata()
-        
+
         # Create directory structure if experiment is being created
         subdir_names = ["logs", "checkpoints", "eval_results", "configs"]
         for subdir in subdir_names:

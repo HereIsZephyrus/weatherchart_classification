@@ -17,7 +17,9 @@ class CNNconfig(BaseModel):
     cnn_feature_dim: ClassVar[int] = 2048
     cnn_dropout: float
     cnn_output_dim: int
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class RNNconfig(BaseModel):
@@ -28,7 +30,9 @@ class RNNconfig(BaseModel):
     rnn_hidden_dim: int
     rnn_dropout: float
     rnn_bidirectional:ClassVar[bool] = False
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class UnifiedConfig(BaseModel):
@@ -37,7 +41,9 @@ class UnifiedConfig(BaseModel):
     beam_max_length: int
     beam_early_stopping: bool
     joint_embedding_dim: int
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class BasicTrainingConfig(BaseModel):
@@ -46,7 +52,9 @@ class BasicTrainingConfig(BaseModel):
     batch_size: int
     gradient_accumulation_steps: int
     max_grad_norm: float
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class LearningStrategyConfig(BaseModel):
@@ -68,7 +76,9 @@ class LearningStrategyConfig(BaseModel):
     # Label Order Strategy
     label_order_strategy: ClassVar[str] = "frequency"  # frequency, random, fixed
     random_order_ratio: ClassVar[float] = 0.2  # 20% samples use random order
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class OptimizerConfig(BaseModel):
@@ -78,14 +88,18 @@ class OptimizerConfig(BaseModel):
     adam_beta1: float
     adam_beta2: float
     adam_epsilon: float
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class LossWeightConfig(BaseModel):
     """Loss weights for multi-task learning"""
     bce_loss_weight: float
     sequence_loss_weight: float
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class QuantizationConfig(BaseModel):
@@ -93,7 +107,9 @@ class QuantizationConfig(BaseModel):
     enable_quantization: bool = False
     quantization_dtype: Literal["qint8", "qint32"] = "qint8"
     quantization_scheme: str = "symmetric"  # symmetric or asymmetric
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class ValidationConfig(BaseModel):
@@ -108,7 +124,9 @@ class ValidationConfig(BaseModel):
     early_stopping: ClassVar[bool] = True
     early_stopping_patience: int
     early_stopping_threshold: float
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class Hyperparameter(BaseModel):
@@ -147,7 +165,9 @@ class Hyperparameter(BaseModel):
     # Early Stopping Parameters
     early_stopping_patience: int
     early_stopping_threshold: float
+    
     def to_dict(self):
+        """Backward compatibility method"""
         return self.model_dump()
 
 class ModelConfig(PretrainedConfig):
@@ -294,3 +314,27 @@ class ModelConfig(PretrainedConfig):
         }
         with open("config.json", "w", encoding="utf-8") as f:
             json.dump(total_config, f, indent=2)
+
+    def model_dump(self, **kwargs):
+        """
+        Convert the configuration to a dictionary for JSON serialization.
+        Compatible with Pydantic model_dump method.
+        """
+        return {
+            "model_type": self.model_type,
+            "seed": self.seed,
+            "device": self.device,
+            "cnn_config": self.cnn_config.to_dict(),
+            "rnn_config": self.rnn_config.to_dict(),
+            "unified_config": self.unified_config.to_dict(),
+            "basic_config": self.basic_config.to_dict(),
+            "learning_strategy_config": self.learning_strategy_config.to_dict(),
+            "optimizer_config": self.optimizer_config.to_dict(),
+            "loss_weight_config": self.loss_weight_config.to_dict(),
+            "validation_config": self.validation_config.to_dict(),
+            "quantization_config": self.quantization_config.to_dict()
+        }
+    
+    def to_dict(self):
+        """Backward compatibility method"""
+        return self.model_dump()

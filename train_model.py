@@ -52,4 +52,6 @@ def train_model():
 if __name__ == "__main__":
     print("PyTorch 版本:", torch.__version__)
     print("CUDA 版本:", torch.version.cuda)
+    torch.cuda.set_per_process_memory_fraction(0.9)
+    torch.cuda.empty_cache()
     train_model()

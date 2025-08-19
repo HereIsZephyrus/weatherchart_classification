@@ -396,7 +396,7 @@ class WeatherChartModel(PreTrainedModel):
     def forward(
         self,
         images: torch.Tensor,
-        input_labels: Optional[torch.Tensor],
+        input_labels: Optional[torch.Tensor] = None,
         use_teacher_forcing: bool = False
     ) -> Dict[str, torch.Tensor]:
         """

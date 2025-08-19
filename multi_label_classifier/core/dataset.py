@@ -17,7 +17,7 @@ import torch
 from torch.utils.data import Dataset, DataLoader
 from PIL import Image
 from torchvision import transforms
-from ..settings import EPOCH_NUM, SAMPLE_PER_BATCH, CURRENT_DATASET_DIR, NUM_WORKERS, SAVE_FREQUENCY
+from ..settings import EPOCH_NUM, SAMPLE_PER_BATCH, CURRENT_DATASET_DIR, NUM_WORKERS
 
 logger = logging.getLogger(__name__)
 

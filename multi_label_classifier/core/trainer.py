@@ -211,7 +211,7 @@ class WeatherChartTrainer:
                 train_metrics = self._train_epoch()
 
                 # Evaluate
-                if self.eval_dataloader and (epoch + 1) % 2 == 0:
+                if self.eval_dataloader and (epoch + 1) % 4 == 0:
                     eval_metrics = self._evaluate()
 
                     # Check for best model
@@ -589,13 +589,25 @@ class WeatherChartTrainer:
             "best_metric": self.best_metric,
             "training_stage": self.training_stage.value,
             "optimizer_state": self.optimizers[self.training_stage.value].state_dict(),
-            "config": self.config.to_dict()
+            "config": self.config.model_dump()
         }
 
         with open(os.path.join(checkpoint_dir, "training_state.json"), "w", encoding="utf-8") as f:
-            json.dump(training_state, f, indent=2)
+            json.dump(training_state, f, indent=2, default=self._json_serializer)
 
         logger.info("Saved checkpoint: %s", checkpoint_dir)
+
+    def _json_serializer(self, obj):
+        """Custom JSON serializer for non-serializable objects."""
+        from pydantic import BaseModel
+        if isinstance(obj, BaseModel):
+            return obj.model_dump()
+        elif hasattr(obj, 'to_dict'):
+            return obj.to_dict()
+        elif hasattr(obj, '__dict__'):
+            return obj.__dict__
+        else:
+            return str(obj)
 
     def load_checkpoint(self, checkpoint_path: str):
         """Load model checkpoint."""

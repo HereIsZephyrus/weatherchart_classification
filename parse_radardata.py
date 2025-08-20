@@ -3,7 +3,7 @@ entry point for the radar data parser
 """
 
 import logging
-from .inspector import RadarDatasetParser
+from .multi_label_classifier.preprocess import RadarDatasetParser
 
 logger = logging.getLogger(__name__)
 

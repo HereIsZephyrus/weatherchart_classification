@@ -6,18 +6,15 @@
 # 核心功能模块
 ├── crawler/ # 数据爬虫模块, 从ECMWF图廊中爬取气象图表
 ├── extractor/ # 图片提取模块, 从会商PPT中提取图片, 并进行预处理
-├── classifier/ # 要素分类模块, 输入图片获得要素分类结果
-│       ├ feature_classifier/ # 要素分类模型, 输入图片获得要素分类结果
-│       └ product_classifier/ # 产品分类模型, 输入图片和要素分类结果获得产品分类结果
-├── inspector/ # 数据检查模块, 提供数据整理制作, 数据集信息报告和训练检测功能
+├── multi_label_classifier/ # 要素分类模块, 包含数据预处理, CNN-RNN模型和训练流程
+├── inspector/ # 数据集检查模块, 对原始数据进行检查并生成报告
 ├── instructor/ # 图文指令模块, 依托微调的gemma3模型实现图文检索和分类评估
 ├── craw.py # 数据爬虫模块入口程序
 ├── extract.py # 图片提取模块入口程序
 ├── classify.py # 要素分类模块入口程序
 └── statistics.py # 数据检查模块入口程序
 # 模型训练模块
-├── trainer/ # 训练模块, 训练CNN-RNN Unified模型用于图表要素分类
-└── finetuner/ # gemma3:4b模型微调模块, 使用CLIP方法在图表识别和分类任务上进行微调
+├── finetuner/ # gemma3:4b模型微调模块, 使用CLIP方法在图表识别和分类任务上进行微调
 # 数据流文件
 ├── income/ # 放置待分类PPT和图片
 └── train_data/ # 放置训练需要的数据

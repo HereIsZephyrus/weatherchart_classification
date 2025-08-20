@@ -6,13 +6,13 @@ import json
 import os
 import re
 import ast
-from typing import List, Optional
+from typing import List, Optional, Any
 import logging
 import random
 from PIL import Image
 from pydantic import BaseModel
-from ..constants import GALLERY_MAPPING_BILINGUAL_PATH
 from pandas import Series
+from ...constants import GALLERY_MAPPING_BILINGUAL_PATH
 logger = logging.getLogger(__name__)
 
 class ChartMetadata(BaseModel):
@@ -55,6 +55,12 @@ class Chart:
         result = self._metadata.model_dump()
         return result
 
+    def __getitem__(self, key: str) -> Any:
+        """
+        Get the metadata of the chart
+        """
+        return self._metadata.model_dump()[key]
+
     def load_name_mapping(self):
         """
         Load name mapping from gallery_mapping_bilingual.json
@@ -89,7 +95,8 @@ class Chart:
             index=index,
             en_name=self.name_mapping[product_name]['en'],
             zh_name=self.name_mapping[product_name]['zh'],
-            label=os.path.abspath(self.image_path).split("/")[-2].split("A")
+            label=os.path.abspath(self.image_path).split("/")[-2].split("A"),
+            summary=""
         )
 
     def construct_title(self) -> str:
@@ -101,7 +108,7 @@ class Chart:
         day = random.randint(1, 30)
         if month == 2 and day > 28:
             day = 28
-        return f"{year}年{month}月{day}日{self._metadata.zh_name}图".encode('utf-8').decode('utf-8')
+        return f"{month}{day}{self._metadata.zh_name}图".encode('utf-8').decode('utf-8')
 
     def save(self, save_path: str):
         """

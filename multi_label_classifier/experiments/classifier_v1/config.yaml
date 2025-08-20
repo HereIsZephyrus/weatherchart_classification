@@ -1,0 +1,44 @@
+
+# CNN Parameters
+cnn_dropout: 0.1
+
+# RNN Parameters 
+rnn_num_layers: 1
+rnn_hidden_dim: 64
+rnn_dropout: 0.2
+
+# Beam Search Parameters
+beam_width: 2
+beam_max_length: 10
+beam_early_stopping: true
+
+# Model Architecture Parameters
+joint_embedding_dim: 256
+
+# Quantization Parameters
+enable_quantization: true
+quantization_dtype: "qint8"
+quantization_scheme: "symmetric"
+
+# Training Control Parameters
+gradient_accumulation_steps: 1
+max_grad_norm: 1.0
+
+# Learning Rate Parameters
+cnn_learning_rate: 1.0e-4
+rnn_learning_rate: 2.0e-4
+warmup_learning_rate: 1.0e-3
+
+# Optimizer Parameters
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_epsilon: 1.0e-8
+
+# Loss Weight Parameters
+bce_loss_weight: 1.0
+sequence_loss_weight: 0.5
+
+# Early Stopping Parameters
+early_stopping_patience: 5
+early_stopping_threshold: 0.001

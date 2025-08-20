@@ -8,7 +8,7 @@ import logging
 from PIL import Image, ImageEnhance, ImageDraw, ImageFont
 from pydantic import BaseModel
 from .chart import Chart
-from ..constants import IMAGE_SIZE, LOGO_DIR
+from ..settings import IMAGE_SIZE, LOGO_DIR
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -266,7 +266,7 @@ class ChartEnhancer:
 
 EnhancerConfigPresets = {
     "None": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.0,
         add_title_prob=0.0,
         clip_chart_prob=0.0,
@@ -276,7 +276,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.0
     ),
     "HighClipLowNoise": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.3,
         add_title_prob=0.3,
         clip_chart_prob=0.8,  # high clip probability
@@ -296,7 +296,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.2
     ),
     "HighWatermarkStable": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.7,    # high watermark probability
         add_title_prob=0.8,
         clip_chart_prob=0.1,  # low clip probability
@@ -306,7 +306,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.1
     ),
     "BalancedEnhance": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.4,    # balanced watermark probability
         add_title_prob=0.4,
         clip_chart_prob=0.4,  # balanced clip probability
@@ -316,7 +316,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.3
     ),
     "HighColorVariation": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.3,
         add_title_prob=0.3,
         clip_chart_prob=0.2,
@@ -326,7 +326,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.4
     ),
     "NightModeSimulation": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.3,
         add_title_prob=0.3,
         clip_chart_prob=0.2,
@@ -336,7 +336,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.5
     ),
     "PrintStyleSimulation": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.9,    # high watermark prob
         add_title_prob=0.9,
         clip_chart_prob=0.1,
@@ -346,7 +346,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.2   # low saturation
     ),
     "WeatherAppStyle": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.6,    # high watermark probability
         add_title_prob=0.7,   # high title
         clip_chart_prob=0.5,  # medium clip
@@ -356,7 +356,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.6   # high saturation
     ),
     "PresentationReady": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=0.95,   # almost always add watermark
         add_title_prob=0.95,  # almost always add title
         clip_chart_prob=0.3,  # low clip
@@ -366,7 +366,7 @@ EnhancerConfigPresets = {
         saturation_prob=0.4   # medium saturation
     ),
     "ExtremeVariation": EnhancerConfig(
-        use_clip=True,
+        use_clip=False,
         add_logo_prob=1.0,
         add_title_prob=1.0,
         clip_chart_prob=0.9,

@@ -7,7 +7,8 @@ import os
 import logging
 from datasets import load_dataset
 import pandas as pd
-from ..constants import RADAR_DIR, RADAR_RAW_DIR
+from ...constants import RADAR_RAW_DIR
+from ..settings import RADAR_DIR
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
